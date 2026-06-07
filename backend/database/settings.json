@@ -1,0 +1,7 @@
+{
+    "mock_mode": false,
+    "github_token": "",
+    "openai_key": "",
+    "ollama_endpoint": "",
+    "collectors_limit": 500
+}

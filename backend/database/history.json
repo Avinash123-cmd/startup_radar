@@ -1,0 +1,57 @@
+[
+    {
+        "date": "2026-06-07 13:46:42",
+        "repos": [
+            {
+                "name": "openclaw",
+                "stars": 377335,
+                "language": "TypeScript"
+            },
+            {
+                "name": "n8n",
+                "stars": 191406,
+                "language": "TypeScript"
+            },
+            {
+                "name": "hermes-agent",
+                "stars": 185079,
+                "language": "Python"
+            },
+            {
+                "name": "AutoGPT",
+                "stars": 184804,
+                "language": "Python"
+            },
+            {
+                "name": "stable-diffusion-webui",
+                "stars": 163505,
+                "language": "Python"
+            },
+            {
+                "name": "prompts.chat",
+                "stars": 163395,
+                "language": "HTML"
+            },
+            {
+                "name": "JavaGuide",
+                "stars": 156185,
+                "language": "JavaScript"
+            },
+            {
+                "name": "langflow",
+                "stars": 149323,
+                "language": "Python"
+            },
+            {
+                "name": "dify",
+                "stars": 144211,
+                "language": "TypeScript"
+            },
+            {
+                "name": "open-webui",
+                "stars": 140418,
+                "language": "Python"
+            }
+        ]
+    }
+]
