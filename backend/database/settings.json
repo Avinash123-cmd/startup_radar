@@ -2,6 +2,6 @@
     "mock_mode": false,
     "github_token": "",
     "openai_key": "",
-    "ollama_endpoint": "",
+    "ollama_endpoint": "http://localhost:11434",
     "collectors_limit": 500
 }

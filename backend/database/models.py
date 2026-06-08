@@ -17,7 +17,6 @@ class Category(Base):
     repositories = relationship("Repository", back_populates="category", cascade="all, delete-orphan")
     data_points = relationship("MarketDataPoint", back_populates="category", cascade="all, delete-orphan")
     trends = relationship("TrendHistory", back_populates="category", cascade="all, delete-orphan")
-    product_hunt_products = relationship("ProductHuntProduct", back_populates="category", cascade="all, delete-orphan")
 
 class Repository(Base):
     __tablename__ = "repositories"
@@ -62,7 +61,12 @@ class MarketDataPoint(Base):
     engagement_score = Column(Integer, default=0, index=True)
     published_at = Column(DateTime, index=True, nullable=False)
     category_id = Column(Integer, ForeignKey("categories.id", ondelete="SET NULL"), nullable=True)
+    normalized_text = Column(Text, nullable=True)
+    classification_confidence = Column(Float, default=0.0)
+    classification_evidence = Column(Text, nullable=True)
+    raw_payload = Column(Text, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
     # Relationships
     category = relationship("Category", back_populates="data_points")
@@ -81,6 +85,8 @@ class TrendHistory(Base):
     growth_rate = Column(Float, default=0.0)
     news_volume = Column(Integer, default=0)
     momentum_score = Column(Float, default=0.0)
+    source_breakdown = Column(Text, nullable=True)
+    score_components = Column(Text, nullable=True)
     recorded_at = Column(DateTime, default=datetime.utcnow, index=True)
 
     # Relationships
@@ -97,6 +103,9 @@ class Opportunity(Base):
     competition_score = Column(Integer, default=0)  # 1-100
     opportunity_score = Column(Integer, default=0)  # 1-100
     potential_ideas = Column(Text, nullable=True)   # JSON string list of potential ideas
+    evidence = Column(Text, nullable=True)
+    gap_score = Column(Float, default=0.0)
+    score_components = Column(Text, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
 
 class WeeklyReport(Base):
@@ -107,29 +116,35 @@ class WeeklyReport(Base):
     slug = Column(String(255), unique=True, nullable=False, index=True)
     summary = Column(Text, nullable=True)
     content = Column(Text, nullable=False)  # Markdown content
+    context_snapshot = Column(Text, nullable=True)
     published_at = Column(DateTime, default=datetime.utcnow, index=True)
     created_at = Column(DateTime, default=datetime.utcnow)
 
-class ProductHuntProduct(Base):
-    __tablename__ = "product_hunt_products"
+class PipelineRun(Base):
+    __tablename__ = "pipeline_runs"
 
     id = Column(Integer, primary_key=True, index=True)
-    ph_id = Column(String(255), unique=True, index=True, nullable=False)
-    name = Column(String(255), nullable=False)
-    tagline = Column(String(500), nullable=True)
-    description = Column(Text, nullable=True)
-    votes_count = Column(Integer, default=0)
-    comments_count = Column(Integer, default=0)
-    website_url = Column(String(1000), nullable=True)
-    ph_url = Column(String(1000), nullable=True)
-    topics = Column(Text, nullable=True)  # JSON-serialized list of strings
-    makers = Column(Text, nullable=True)  # JSON-serialized list of strings
-    launch_date = Column(DateTime, nullable=False, index=True)
-    category_id = Column(Integer, ForeignKey("categories.id", ondelete="SET NULL"), nullable=True)
-    trend_score = Column(Float, default=0.0)
-    final_score = Column(Float, default=0.0)
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    status = Column(String(30), index=True, nullable=False, default="running")
+    started_at = Column(DateTime, default=datetime.utcnow, index=True)
+    finished_at = Column(DateTime, nullable=True)
+    records_collected = Column(Integer, default=0)
+    records_saved = Column(Integer, default=0)
+    message = Column(Text, nullable=True)
+    errors = Column(Text, nullable=True)
 
-    # Relationships
-    category = relationship("Category", back_populates="product_hunt_products")
+    collector_runs = relationship("CollectorRun", back_populates="pipeline_run", cascade="all, delete-orphan")
+
+class CollectorRun(Base):
+    __tablename__ = "collector_runs"
+
+    id = Column(Integer, primary_key=True, index=True)
+    pipeline_run_id = Column(Integer, ForeignKey("pipeline_runs.id", ondelete="CASCADE"), nullable=True)
+    source = Column(String(50), index=True, nullable=False)
+    status = Column(String(30), index=True, nullable=False)
+    started_at = Column(DateTime, default=datetime.utcnow, index=True)
+    finished_at = Column(DateTime, nullable=True)
+    records_collected = Column(Integer, default=0)
+    records_saved = Column(Integer, default=0)
+    message = Column(Text, nullable=True)
+
+    pipeline_run = relationship("PipelineRun", back_populates="collector_runs")

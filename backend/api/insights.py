@@ -9,18 +9,13 @@ router = APIRouter(tags=["Insights"])
 @router.get("/insights", response_model=QuickInsight)
 def read_insights(db: Session = Depends(get_db)):
     reports = get_weekly_reports(db, limit=1)
-    
+    trends = get_trends(db)
+    sorted_trends = sorted(trends, key=lambda x: x.momentum_score, reverse=True)
+
     if reports:
         report = reports[0]
-        # Find leading category from trends
-        trends = get_trends(db)
-        leader_name = "Browser & Desktop Automation Agents"
-        leader_score = 92
-        
-        if trends:
-            sorted_trends = sorted(trends, key=lambda x: x.momentum_score, reverse=True)
-            leader_name = sorted_trends[0].category.name
-            leader_score = int(sorted_trends[0].momentum_score)
+        leader_name = sorted_trends[0].category.name if sorted_trends else "No data"
+        leader_score = int(sorted_trends[0].momentum_score) if sorted_trends else 0
             
         return {
             "leader": leader_name,
@@ -28,9 +23,16 @@ def read_insights(db: Session = Depends(get_db)):
             "insight": report.summary or "Insight brief compiled successfully."
         }
         
-    # Fallback if no report exists yet
+    if sorted_trends:
+        leader = sorted_trends[0]
+        return {
+            "leader": leader.category.name,
+            "score": int(leader.momentum_score),
+            "insight": f"{leader.category.name} currently leads with momentum {leader.momentum_score}, based on repository growth and recent market signals."
+        }
+
     return {
-        "leader": "Browser & Desktop Automation Agents",
-        "score": 88,
-        "insight": "Browser automation agents show a 24.2% star growth velocity this week, indicating strong developer demand."
+        "leader": "No data",
+        "score": 0,
+        "insight": "No market signals are available yet. Configure source credentials and run the pipeline."
     }

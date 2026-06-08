@@ -3,6 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
 from database.db import engine, SessionLocal
 from database.models import Base, Category
+from database.migrations import run_migrations
 from database.crud import seed_categories, get_categories
 
 # Import Routers
@@ -14,27 +15,18 @@ from api.repositories import router as repositories_router
 from api.reports import router as reports_router
 from api.settings import router as settings_router
 
-# Import Scheduler and Pipeliners
 from scheduler import start_scheduler
-from collectors.collector_manager import run_all_collectors
-from processor.trend_analyzer import run_trend_analysis
-from processor.opportunity_generator import generate_opportunities
-from processor.insights_generator import generate_weekly_report
+from pipeline import run_pipeline
 
-# Background job to run initial sync
 def run_initial_sync():
     print("Initiating initial synchronization run...")
-    run_all_collectors()
-    run_trend_analysis()
-    generate_opportunities()
-    generate_weekly_report()
+    run_pipeline()
     print("Initial synchronization run complete.")
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # 1. Initialize Database & Create Tables
-    print("Initializing Database tables...")
-    Base.metadata.create_all(bind=engine)
+    print("Initializing Database migrations...")
+    run_migrations(engine)
     
     # 2. Seed Default Categories
     db = SessionLocal()
@@ -57,9 +49,9 @@ async def lifespan(app: FastAPI):
     
     yield
     
-    # Shutdown scheduler on exit
     print("Stopping scheduler...")
-    scheduler.shutdown()
+    if scheduler:
+        scheduler.shutdown()
 
 app = FastAPI(
     title="AI Startup Radar API",

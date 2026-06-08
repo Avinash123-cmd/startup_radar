@@ -1,134 +1,144 @@
-import requests
-import xml.etree.ElementTree as ET
-from datetime import datetime, timedelta
-from sqlalchemy.orm import Session
-from database.db import SessionLocal
-from database.models import Category
-from database.crud import add_market_data_point
-from config import get_settings
+from __future__ import annotations
 
-MOCK_ARXIV_PAPERS = [
-    # AI Agents
-    {"title": "Agentic Orchestration: Collaborative Planning in Multi-Agent Ecosystems", "authors": "A. Chen et al.", "id": "arxiv-101", "days_ago": 4, "category_slug": "ai-agents"},
-    {"title": "Evaluating Reasoning Loops in Autonomous Web Interaction Agents", "authors": "J. Doe et al.", "id": "arxiv-102", "days_ago": 11, "category_slug": "ai-agents"},
-    # LLM Frameworks
-    {"title": "Retrieval-Augmented Generation at Scale: Optimization and Quantization Methods", "authors": "R. Smith et al.", "id": "arxiv-201", "days_ago": 6, "category_slug": "llm-frameworks"},
-    {"title": "Context Compression for Large Language Model Embeddings", "authors": "K. Lee et al.", "id": "arxiv-202", "days_ago": 15, "category_slug": "llm-frameworks"},
-    # Browser Agents
-    {"title": "Visual Web Agents: Zero-Shot Browser Navigation via Multimodal Vision Models", "authors": "Y. Wang et al.", "id": "arxiv-301", "days_ago": 2, "category_slug": "browser-agents"},
-    # Voice AI
-    {"title": "High-Fidelity Neural Speech Synthesis with Flow-Matching Models", "authors": "M. Brown et al.", "id": "arxiv-401", "days_ago": 8, "category_slug": "voice-ai"},
-    # Coding Agents
-    {"title": "SWE-Bench-X: Benchmarking Autonomous Software Development Agents", "authors": "H. Patel et al.", "id": "arxiv-501", "days_ago": 10, "category_slug": "coding-agents"},
-    # Multimodal Generation
-    {"title": "Stable Diffusion in Latent Space: Accelerating Text-to-Image Generation Rates", "authors": "G. Davis et al.", "id": "arxiv-601", "days_ago": 14, "category_slug": "multimodal-generation"}
+import asyncio
+import xml.etree.ElementTree as ET
+from datetime import datetime
+
+import httpx
+
+from collectors.base import guarded_collect
+from intelligence.types import CollectorBatch, RawSignal
+
+SEARCH_TERMS = [
+    "artificial intelligence",
+    "large language models",
+    "AI agents",
+    "multimodal AI",
+    "code generation",
+    "speech synthesis",
+    "browser automation",
 ]
 
-def collect_arxiv(db: Session, settings: dict):
-    print("Starting arXiv academic papers collection...")
-    categories = db.query(Category).all()
-    cat_map = {c.slug: c.id for c in categories}
-    
-    mock_mode = settings.get("mock_mode", True)
-    limit = settings.get("collectors_limit", 20)
-    
-    if mock_mode:
-        print("Generating mock arXiv papers...")
-        for paper in MOCK_ARXIV_PAPERS:
-            cat_id = cat_map.get(paper["category_slug"])
-            pub_date = datetime.utcnow() - timedelta(days=paper["days_ago"])
-            
-            add_market_data_point(
-                db=db,
+ARXIV_API_URL = "http://export.arxiv.org/api/query"
+
+
+def collect_arxiv(db=None, settings: dict | None = None) -> CollectorBatch:
+    settings = settings or {}
+    limit = min(int(settings.get("collectors_limit", 20) or 20), 50)
+    started_at = datetime.utcnow()
+
+    def _collect() -> list[RawSignal]:
+        return _run_async(_collect_arxiv_async(SEARCH_TERMS, limit))
+
+    return guarded_collect("arxiv", _collect, started_at)
+
+
+async def _collect_arxiv_async(search_terms: list[str], limit: int) -> list[RawSignal]:
+    records: list[RawSignal] = []
+    seen: set[str] = set()
+    async with httpx.AsyncClient(follow_redirects=True) as client:
+        for index, term in enumerate(search_terms):
+            if index:
+                await asyncio.sleep(3.0)
+            xml_text = await _query_arxiv(client, term, limit)
+            for record in _parse_arxiv_response(xml_text):
+                if record.external_id in seen:
+                    continue
+                seen.add(record.external_id)
+                records.append(record)
+    return records
+
+
+async def _query_arxiv(client: httpx.AsyncClient, search_term: str, limit: int) -> str:
+    response = await client.get(
+        ARXIV_API_URL,
+        params={
+            "search_query": f'all:"{search_term}"',
+            "sortBy": "submittedDate",
+            "sortOrder": "descending",
+            "max_results": limit,
+        },
+        timeout=25.0,
+    )
+    response.raise_for_status()
+    return response.text
+
+
+def _parse_arxiv_response(xml_content: str) -> list[RawSignal]:
+    root = ET.fromstring(xml_content)
+    ns = {"atom": "http://www.w3.org/2005/Atom"}
+    records: list[RawSignal] = []
+
+    for entry in root.findall("atom:entry", ns):
+        id_url = _text(entry.find("atom:id", ns))
+        if not id_url:
+            continue
+        arxiv_id = _extract_arxiv_id(id_url)
+        title = " ".join(_text(entry.find("atom:title", ns)).split())
+        abstract = " ".join(_text(entry.find("atom:summary", ns)).split())
+        published_at = _parse_datetime(_text(entry.find("atom:published", ns)))
+        authors = [
+            _text(author.find("atom:name", ns))
+            for author in entry.findall("atom:author", ns)
+            if _text(author.find("atom:name", ns))
+        ]
+        pdf_url = _pdf_url(entry, ns, arxiv_id)
+        records.append(
+            RawSignal(
                 source="arxiv",
-                external_id=paper["id"],
-                title=f"[arXiv] {paper['title']}",
-                description=f"Authors: {paper['authors']}. Academic paper published on arXiv.",
-                url=f"https://arxiv.org/abs/{paper['id']}",
-                engagement_score=random_citations(),
-                published_at=pub_date,
-                category_id=cat_id
-            )
-        print("Mock arXiv papers synchronized successfully.")
-        return
-        
-    # Real arXiv query API
-    # Query for "artificial intelligence" or specific categories
-    url = "http://export.arxiv.org/api/query"
-    params = {
-        "search_query": "cat:cs.AI OR cat:cs.CL OR cat:cs.LG",
-        "sortBy": "submittedDate",
-        "sortOrder": "descending",
-        "max_results": limit
-    }
-    
-    try:
-        response = requests.get(url, params=params, timeout=10)
-        response.raise_for_status()
-        
-        # Parse XML response
-        root = ET.fromstring(response.content)
-        # XML namespace maps
-        ns = {"atom": "http://www.w3.org/2005/Atom"}
-        
-        for entry in root.findall("atom:entry", ns):
-            title = entry.find("atom:title", ns).text.strip().replace("\n", " ")
-            paper_url = entry.find("atom:id", ns).text.strip()
-            published_str = entry.find("atom:published", ns).text.strip()
-            # Parse published e.g. "2024-03-24T18:25:00Z"
-            try:
-                published_at = datetime.strptime(published_str, "%Y-%m-%dT%H:%M:%SZ")
-            except:
-                published_at = datetime.utcnow()
-                
-            external_id = paper_url.split("/abs/")[-1]
-            
-            # Extract summary/authors
-            summary = entry.find("atom:summary", ns).text.strip().replace("\n", " ")
-            authors = [author.find("atom:name", ns).text for author in entry.findall("atom:author", ns)]
-            authors_str = ", ".join(authors)
-            
-            # Map category from keyword heuristics
-            category_id = None
-            text_lower = f"{title} {summary}".lower()
-            if any(k in text_lower for k in ["agent", "babyagi", "crewai", "autogen"]):
-                category_id = cat_map.get("ai-agents")
-            elif any(k in text_lower for k in ["llm", "rag", "langchain", "llama", "vector", "embedding"]):
-                category_id = cat_map.get("llm-frameworks")
-            elif any(k in text_lower for k in ["browser", "web automation", "skyvern"]):
-                category_id = cat_map.get("browser-agents")
-            elif any(k in text_lower for k in ["voice", "audio", "speech", "whisper", "tts"]):
-                category_id = cat_map.get("voice-ai")
-            elif any(k in text_lower for k in ["code", "coding", "editor", "developer", "aider", "cursor"]):
-                category_id = cat_map.get("coding-agents")
-            elif any(k in text_lower for k in ["diffusion", "image", "video", "multimodal", "comfyui"]):
-                category_id = cat_map.get("multimodal-generation")
-                
-            add_market_data_point(
-                db=db,
-                source="arxiv",
-                external_id=external_id,
+                external_id=arxiv_id,
                 title=f"[arXiv] {title}",
-                description=f"Authors: {authors_str}. Abstract: {summary[:250]}...",
-                url=paper_url,
-                engagement_score=random_citations(),
+                description=f"Authors: {', '.join(authors)}. Abstract: {abstract}",
+                url=f"https://arxiv.org/abs/{arxiv_id}",
+                engagement_score=0,
                 published_at=published_at,
-                category_id=category_id
+                raw_payload={
+                    "authors": authors,
+                    "pdf_url": pdf_url,
+                    "abstract": abstract,
+                },
             )
-            
-        print(f"arXiv preprints successfully queried and synced.")
-        
-    except Exception as e:
-        print(f"arXiv API query failed: {e}. Falling back to mock generator.")
-        settings["mock_mode"] = True
-        collect_arxiv(db, settings)
+        )
+    return records
 
-def random_citations():
-    import random
-    # Return random realistic citations or reads score
-    return random.randint(10, 150)
 
-if __name__ == "__main__":
-    db = SessionLocal()
-    settings = get_settings()
-    collect_arxiv(db, settings)
+def _run_async(coro):
+    try:
+        loop = asyncio.get_running_loop()
+    except RuntimeError:
+        loop = None
+
+    if loop and loop.is_running():
+        import concurrent.futures
+
+        with concurrent.futures.ThreadPoolExecutor() as executor:
+            return executor.submit(asyncio.run, coro).result()
+    return asyncio.run(coro)
+
+
+def _text(node) -> str:
+    return node.text.strip() if node is not None and node.text else ""
+
+
+def _extract_arxiv_id(url: str) -> str:
+    value = url.split("/abs/")[-1].split("/pdf/")[-1]
+    for index in range(len(value) - 1, -1, -1):
+        if value[index] == "v" and value[index + 1 :].isdigit():
+            return value[:index]
+    return value
+
+
+def _parse_datetime(value: str) -> datetime:
+    if not value:
+        return datetime.utcnow()
+    try:
+        return datetime.strptime(value, "%Y-%m-%dT%H:%M:%SZ")
+    except ValueError:
+        return datetime.utcnow()
+
+
+def _pdf_url(entry, ns: dict[str, str], arxiv_id: str) -> str:
+    for link in entry.findall("atom:link", ns):
+        if link.attrib.get("type") == "application/pdf" or link.attrib.get("title") == "pdf":
+            return link.attrib.get("href") or f"https://arxiv.org/pdf/{arxiv_id}.pdf"
+    return f"https://arxiv.org/pdf/{arxiv_id}.pdf"

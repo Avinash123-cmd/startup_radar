@@ -2,7 +2,18 @@ from sqlalchemy.orm import Session
 from sqlalchemy import desc, func
 from datetime import datetime, timedelta
 import json
-from database.models import Category, Repository, RepositorySnapshot, MarketDataPoint, TrendHistory, Opportunity, WeeklyReport, ProductHuntProduct
+from classification.taxonomy import category_seed_rows
+from database.models import (
+    Category,
+    CollectorRun,
+    MarketDataPoint,
+    Opportunity,
+    PipelineRun,
+    Repository,
+    RepositorySnapshot,
+    TrendHistory,
+    WeeklyReport,
+)
 
 # ==========================================
 # CATEGORIES CRUD
@@ -21,14 +32,7 @@ def create_category(db: Session, name: str, slug: str, description: str = None):
     return db_cat
 
 def seed_categories(db: Session):
-    default_categories = [
-        {"name": "AI Agents", "slug": "ai-agents", "description": "Autonomous agents capable of executing complex workflows and reasoning tasks."},
-        {"name": "LLM Applications & Frameworks", "slug": "llm-frameworks", "description": "Frameworks for building applications powered by large language models, including prompt managers, RAG pipelines, and orchestration libraries."},
-        {"name": "Browser & Desktop Automation Agents", "slug": "browser-agents", "description": "AI systems designed to control browsers, desktops, and interact with graphical user interfaces."},
-        {"name": "Voice & Audio AI", "slug": "voice-ai", "description": "Synthesized voice generator models, real-time translations, speech-to-text converters, and audio intelligence tools."},
-        {"name": "AI Coding Assistants", "slug": "coding-agents", "description": "AI models and agents designed to write, refactor, search, and explain codebase systems."},
-        {"name": "AI Image & Video Generation", "slug": "multimodal-generation", "description": "Generative diffusion models, text-to-image/video synthesizers, and media editing pipelines."}
-    ]
+    default_categories = category_seed_rows()
     
     seeded = []
     for cat in default_categories:
@@ -58,7 +62,14 @@ def get_repositories(db: Session, category_id: int = None, language: str = None,
         )
         
     # Sorting logic
-    sort_column = getattr(Repository, sort_by, Repository.stars)
+    allowed_sort_columns = {
+        "stars": Repository.stars,
+        "forks": Repository.forks,
+        "name": Repository.name,
+        "created_at": Repository.created_at,
+        "updated_at": Repository.updated_at,
+    }
+    sort_column = allowed_sort_columns.get(sort_by, Repository.stars)
     if order == "desc":
         query = query.order_by(desc(sort_column))
     else:
@@ -131,7 +142,21 @@ def get_data_points(db: Session, category_id: int = None, source: str = None, li
         query = query.filter(MarketDataPoint.source == source)
     return query.order_by(desc(MarketDataPoint.published_at)).limit(limit).all()
 
-def add_market_data_point(db: Session, source: str, external_id: str, title: str, description: str, url: str, engagement_score: int, published_at: datetime, category_id: int = None):
+def add_market_data_point(
+    db: Session,
+    source: str,
+    external_id: str,
+    title: str,
+    description: str,
+    url: str,
+    engagement_score: int,
+    published_at: datetime,
+    category_id: int = None,
+    normalized_text: str | None = None,
+    classification_confidence: float = 0.0,
+    classification_evidence: list[str] | str | None = None,
+    raw_payload: dict | str | None = None,
+):
     # Check for duplicates
     existing = db.query(MarketDataPoint).filter(
         MarketDataPoint.source == source,
@@ -142,7 +167,14 @@ def add_market_data_point(db: Session, source: str, external_id: str, title: str
         existing.engagement_score = engagement_score
         existing.title = title
         existing.description = description
+        existing.url = url
+        existing.published_at = published_at
         existing.category_id = category_id or existing.category_id
+        existing.normalized_text = normalized_text or existing.normalized_text
+        existing.classification_confidence = classification_confidence or existing.classification_confidence
+        existing.classification_evidence = _json_dumps(classification_evidence) or existing.classification_evidence
+        existing.raw_payload = _json_dumps(raw_payload) or existing.raw_payload
+        existing.updated_at = datetime.utcnow()
         db.commit()
         return existing
         
@@ -154,7 +186,11 @@ def add_market_data_point(db: Session, source: str, external_id: str, title: str
         url=url,
         engagement_score=engagement_score,
         published_at=published_at,
-        category_id=category_id
+        category_id=category_id,
+        normalized_text=normalized_text,
+        classification_confidence=classification_confidence,
+        classification_evidence=_json_dumps(classification_evidence),
+        raw_payload=_json_dumps(raw_payload),
     )
     db.add(new_point)
     db.commit()
@@ -180,7 +216,17 @@ def get_trends(db: Session, limit: int = 30):
 def get_category_trend_history(db: Session, category_id: int, limit: int = 30):
     return db.query(TrendHistory).filter(TrendHistory.category_id == category_id).order_by(TrendHistory.recorded_at.asc()).limit(limit).all()
 
-def add_trend_history(db: Session, category_id: int, star_count: int, star_growth_30d: int, growth_rate: float, news_volume: int, momentum_score: float):
+def add_trend_history(
+    db: Session,
+    category_id: int,
+    star_count: int,
+    star_growth_30d: int,
+    growth_rate: float,
+    news_volume: int,
+    momentum_score: float,
+    source_breakdown: dict | None = None,
+    score_components: dict | None = None,
+):
     new_trend = TrendHistory(
         category_id=category_id,
         star_count=star_count,
@@ -188,6 +234,8 @@ def add_trend_history(db: Session, category_id: int, star_count: int, star_growt
         growth_rate=growth_rate,
         news_volume=news_volume,
         momentum_score=momentum_score,
+        source_breakdown=_json_dumps(source_breakdown),
+        score_components=_json_dumps(score_components),
         recorded_at=datetime.utcnow()
     )
     db.add(new_trend)
@@ -201,7 +249,19 @@ def add_trend_history(db: Session, category_id: int, star_count: int, star_growt
 def get_opportunities(db: Session, limit: int = 20):
     return db.query(Opportunity).order_by(desc(Opportunity.opportunity_score)).limit(limit).all()
 
-def add_opportunity(db: Session, title: str, description: str, niche: str, demand_score: int, competition_score: int, opportunity_score: int, potential_ideas: list):
+def add_opportunity(
+    db: Session,
+    title: str,
+    description: str,
+    niche: str,
+    demand_score: int,
+    competition_score: int,
+    opportunity_score: int,
+    potential_ideas: list,
+    evidence: dict | None = None,
+    gap_score: float = 0.0,
+    score_components: dict | None = None,
+):
     opp = Opportunity(
         title=title,
         description=description,
@@ -209,7 +269,10 @@ def add_opportunity(db: Session, title: str, description: str, niche: str, deman
         demand_score=demand_score,
         competition_score=competition_score,
         opportunity_score=opportunity_score,
-        potential_ideas=json.dumps(potential_ideas)
+        potential_ideas=json.dumps(potential_ideas),
+        evidence=_json_dumps(evidence),
+        gap_score=gap_score,
+        score_components=_json_dumps(score_components),
     )
     db.add(opp)
     db.commit()
@@ -225,7 +288,7 @@ def get_weekly_reports(db: Session, limit: int = 10):
 def get_weekly_report_by_slug(db: Session, slug: str):
     return db.query(WeeklyReport).filter(WeeklyReport.slug == slug).first()
 
-def add_weekly_report(db: Session, title: str, slug: str, summary: str, content: str, published_at: datetime = None):
+def add_weekly_report(db: Session, title: str, slug: str, summary: str, content: str, published_at: datetime = None, context_snapshot: dict | None = None):
     if not published_at:
         published_at = datetime.utcnow()
         
@@ -234,7 +297,8 @@ def add_weekly_report(db: Session, title: str, slug: str, summary: str, content:
         slug=slug,
         summary=summary,
         content=content,
-        published_at=published_at
+        published_at=published_at,
+        context_snapshot=_json_dumps(context_snapshot),
     )
     db.add(report)
     db.commit()
@@ -245,88 +309,71 @@ def add_weekly_report(db: Session, title: str, slug: str, summary: str, content:
 # RESET DATABASE
 # ==========================================
 def clear_all_data(db: Session):
+    db.query(CollectorRun).delete()
+    db.query(PipelineRun).delete()
     db.query(WeeklyReport).delete()
     db.query(Opportunity).delete()
     db.query(TrendHistory).delete()
     db.query(MarketDataPoint).delete()
     db.query(RepositorySnapshot).delete()
     db.query(Repository).delete()
-    db.query(ProductHuntProduct).delete()
     db.query(Category).delete()
     db.commit()
 
 # ==========================================
-# PRODUCT HUNT CRUD
+# PIPELINE STATUS
 # ==========================================
-def create_or_update_ph_product(
-    db: Session,
-    ph_id: str,
-    name: str,
-    tagline: str,
-    description: str,
-    votes_count: int,
-    comments_count: int,
-    website_url: str,
-    ph_url: str,
-    topics: list,
-    makers: list,
-    launch_date: datetime,
-    category_id: int = None
-):
-    # Calculate scores
-    trend_score = votes_count * 0.7 + comments_count * 0.3
-    
-    # Calculate age decay factor
-    age_in_hours = (datetime.utcnow() - launch_date).total_seconds() / 3600.0
-    age_decay_factor = 1.0 / ((age_in_hours + 2) ** 1.5)
-    final_score = trend_score * age_decay_factor
-    
-    existing = db.query(ProductHuntProduct).filter(ProductHuntProduct.ph_id == ph_id).first()
-    
-    if existing:
-        existing.name = name
-        existing.tagline = tagline
-        existing.description = description
-        existing.votes_count = votes_count
-        existing.comments_count = comments_count
-        existing.website_url = website_url
-        existing.ph_url = ph_url
-        existing.topics = json.dumps(topics)
-        existing.makers = json.dumps(makers)
-        existing.category_id = category_id or existing.category_id
-        existing.trend_score = trend_score
-        existing.final_score = final_score
-        existing.updated_at = datetime.utcnow()
-        db.commit()
-        return existing
-        
-    new_product = ProductHuntProduct(
-        ph_id=ph_id,
-        name=name,
-        tagline=tagline,
-        description=description,
-        votes_count=votes_count,
-        comments_count=comments_count,
-        website_url=website_url,
-        ph_url=ph_url,
-        topics=json.dumps(topics),
-        makers=json.dumps(makers),
-        launch_date=launch_date,
-        category_id=category_id,
-        trend_score=trend_score,
-        final_score=final_score
-    )
-    db.add(new_product)
+def create_pipeline_run(db: Session) -> PipelineRun:
+    run = PipelineRun(status="running", started_at=datetime.utcnow())
+    db.add(run)
     db.commit()
-    db.refresh(new_product)
-    return new_product
+    db.refresh(run)
+    return run
 
-def get_ph_products(db: Session, trending: bool = False, top: bool = False, limit: int = 20):
-    query = db.query(ProductHuntProduct)
-    if trending:
-        query = query.order_by(desc(ProductHuntProduct.final_score))
-    elif top:
-        query = query.order_by(desc(ProductHuntProduct.votes_count))
-    else:
-        query = query.order_by(desc(ProductHuntProduct.launch_date))
-    return query.limit(limit).all()
+def finish_pipeline_run(db: Session, run: PipelineRun, status: str, records_collected: int = 0, records_saved: int = 0, message: str = "", errors: list[str] | None = None) -> PipelineRun:
+    run.status = status
+    run.finished_at = datetime.utcnow()
+    run.records_collected = records_collected
+    run.records_saved = records_saved
+    run.message = message
+    run.errors = _json_dumps(errors or [])
+    db.commit()
+    db.refresh(run)
+    return run
+
+def add_collector_run(
+    db: Session,
+    source: str,
+    status: str,
+    records_collected: int = 0,
+    records_saved: int = 0,
+    message: str = "",
+    pipeline_run_id: int | None = None,
+    started_at: datetime | None = None,
+    finished_at: datetime | None = None,
+) -> CollectorRun:
+    run = CollectorRun(
+        pipeline_run_id=pipeline_run_id,
+        source=source,
+        status=status,
+        started_at=started_at or datetime.utcnow(),
+        finished_at=finished_at or datetime.utcnow(),
+        records_collected=records_collected,
+        records_saved=records_saved,
+        message=message,
+    )
+    db.add(run)
+    db.commit()
+    db.refresh(run)
+    return run
+
+def get_latest_pipeline_runs(db: Session, limit: int = 10):
+    return db.query(PipelineRun).order_by(desc(PipelineRun.started_at)).limit(limit).all()
+
+
+def _json_dumps(value):
+    if value is None:
+        return None
+    if isinstance(value, str):
+        return value
+    return json.dumps(value, ensure_ascii=False, default=str)
