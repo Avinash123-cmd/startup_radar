@@ -12,10 +12,11 @@ import {
   GitFork,
   X 
 } from "lucide-react";
+import type { PaginatedRepositories, Repository, RepositoryHistory, TrendSummary } from "../../types/api";
 
 export default function RepositoriesPage() {
-  const [repos, setRepos] = useState<any[]>([]);
-  const [categories, setCategories] = useState<any[]>([]);
+  const [repos, setRepos] = useState<Repository[]>([]);
+  const [categories, setCategories] = useState<TrendSummary[]>([]);
   const [languages, setLanguages] = useState<string[]>([]);
   
   // Search & Filter State
@@ -27,8 +28,8 @@ export default function RepositoriesPage() {
   const [totalPages, setTotalPages] = useState(1);
   
   // Modal State
-  const [activeHistoryRepo, setActiveHistoryRepo] = useState<any>(null);
-  const [repoHistoryData, setRepoHistoryData] = useState<any[]>([]);
+  const [activeHistoryRepo, setActiveHistoryRepo] = useState<Repository | null>(null);
+  const [repoHistoryData, setRepoHistoryData] = useState<RepositoryHistory[]>([]);
   const [historyLoading, setHistoryLoading] = useState(false);
   const [loading, setLoading] = useState(true);
 
@@ -37,17 +38,16 @@ export default function RepositoriesPage() {
     // Categories
     fetch("http://localhost:8000/trends")
       .then(res => res.json())
-      .then(data => setCategories(Array.isArray(data) ? data : []));
+      .then((data: TrendSummary[] | unknown) => setCategories(Array.isArray(data) ? data : []));
       
     // Languages
     fetch("http://localhost:8000/repositories/languages")
       .then(res => res.json())
-      .then(data => setLanguages(Array.isArray(data) ? data : []));
+      .then((data: string[] | unknown) => setLanguages(Array.isArray(data) ? data : []));
   }, []);
 
   // Fetch repos list
   const fetchRepos = useCallback(() => {
-    setLoading(true);
     const params = new URLSearchParams({
       page: page.toString(),
       limit: "15",
@@ -61,7 +61,7 @@ export default function RepositoriesPage() {
     
     fetch(`http://localhost:8000/repositories?${params.toString()}`)
       .then(res => res.json())
-      .then(data => {
+      .then((data: PaginatedRepositories) => {
         setRepos(data.items || []);
         setTotalPages(data.pages || 1);
         setLoading(false);
@@ -77,12 +77,12 @@ export default function RepositoriesPage() {
   }, [fetchRepos]);
 
   // Handle opening Growth History Modal
-  const openHistoryModal = async (repo: any) => {
+  const openHistoryModal = async (repo: Repository) => {
     setActiveHistoryRepo(repo);
     setHistoryLoading(true);
     try {
       const res = await fetch(`http://localhost:8000/repositories/${repo.id}/history`);
-      const data = await res.json();
+      const data: RepositoryHistory[] | unknown = await res.json();
       setRepoHistoryData(Array.isArray(data) ? data : []);
     } catch (err) {
       console.error("History Modal Error:", err);

@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import TrendChart from "../component/TrendChart";
+import type { CategoryPrediction, Opportunity, QuickInsight, TrendSummary } from "../types/api";
 import { 
   TrendingUp, 
   Lightbulb, 
@@ -14,10 +15,10 @@ import {
 } from "lucide-react";
 
 export default function Home() {
-  const [trends, setTrends] = useState<any[]>([]);
-  const [insight, setInsight] = useState<any>(null);
-  const [predictions, setPredictions] = useState<any[]>([]);
-  const [opportunities, setOpportunities] = useState<any[]>([]);
+  const [trends, setTrends] = useState<TrendSummary[]>([]);
+  const [insight, setInsight] = useState<QuickInsight | null>(null);
+  const [predictions, setPredictions] = useState<CategoryPrediction[]>([]);
+  const [opportunities, setOpportunities] = useState<Opportunity[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
 
@@ -220,7 +221,7 @@ export default function Home() {
               <span>Startup Opportunities</span>
             </h2>
             <div className="space-y-4">
-              {opportunities.slice(0, 3).map((opp, i) => (
+              {opportunities.slice(0, 3).map((opp) => (
                 <div key={opp.id} className="flex justify-between items-center py-2 border-b border-zinc-800 last:border-b-0">
                   <div>
                     <h4 className="text-sm font-bold text-zinc-200">{opp.title}</h4>

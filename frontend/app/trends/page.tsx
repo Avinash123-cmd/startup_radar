@@ -3,9 +3,10 @@
 import { useEffect, useState } from "react";
 import CategoryHeatmap from "../../component/CategoryHeatmap";
 import { Activity, Star, MessageSquare, Award } from "lucide-react";
+import type { TrendSummary } from "../../types/api";
 
 export default function TrendsPage() {
-  const [trends, setTrends] = useState<any[]>([]);
+  const [trends, setTrends] = useState<TrendSummary[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {

@@ -14,6 +14,10 @@ from api.insights import router as insights_router
 from api.repositories import router as repositories_router
 from api.reports import router as reports_router
 from api.settings import router as settings_router
+from api.analysis import router as analysis_router
+from api.compare import router as compare_router
+from api.founder_ideas import router as founder_ideas_router
+from api.ai_analysis import router as ai_analysis_router
 
 from scheduler import start_scheduler
 from pipeline import run_pipeline
@@ -77,6 +81,10 @@ app.include_router(insights_router)
 app.include_router(repositories_router)
 app.include_router(reports_router)
 app.include_router(settings_router)
+app.include_router(analysis_router)
+app.include_router(compare_router)
+app.include_router(founder_ideas_router)
+app.include_router(ai_analysis_router)
 
 @app.get("/")
 def home():

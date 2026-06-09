@@ -1,18 +1,32 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { Activity, FileText, Calendar, ArrowRight } from "lucide-react";
+import { useCallback, useEffect, useState } from "react";
+import { Activity, FileText, Calendar } from "lucide-react";
+import type { WeeklyReport } from "../../types/api";
 
 export default function ReportsPage() {
-  const [reports, setReports] = useState<any[]>([]);
-  const [selectedReport, setSelectedReport] = useState<any>(null);
+  const [reports, setReports] = useState<WeeklyReport[]>([]);
+  const [selectedReport, setSelectedReport] = useState<WeeklyReport | null>(null);
   const [loadingList, setLoadingList] = useState(true);
   const [loadingReport, setLoadingReport] = useState(false);
+
+  const loadReportContent = useCallback(async (slug: string) => {
+    setLoadingReport(true);
+    try {
+      const res = await fetch(`http://localhost:8000/reports/${slug}`);
+      const data: WeeklyReport = await res.json();
+      setSelectedReport(data);
+    } catch (err) {
+      console.error("Report Content Fetch Error:", err);
+    } finally {
+      setLoadingReport(false);
+    }
+  }, []);
 
   useEffect(() => {
     fetch("http://localhost:8000/reports")
       .then((res) => res.json())
-      .then((data) => {
+      .then((data: WeeklyReport[] | unknown) => {
         const list = Array.isArray(data) ? data : [];
         setReports(list);
         setLoadingList(false);
@@ -24,20 +38,7 @@ export default function ReportsPage() {
         console.error("Reports List Fetch Error:", err);
         setLoadingList(false);
       });
-  }, []);
-
-  const loadReportContent = async (slug: string) => {
-    setLoadingReport(true);
-    try {
-      const res = await fetch(`http://localhost:8000/reports/${slug}`);
-      const data = await res.json();
-      setSelectedReport(data);
-    } catch (err) {
-      console.error("Report Content Fetch Error:", err);
-    } finally {
-      setLoadingReport(false);
-    }
-  };
+  }, [loadReportContent]);
 
   if (loadingList) {
     return (

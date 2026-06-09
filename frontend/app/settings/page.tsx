@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { ChangeEvent, FormEvent, useEffect, useState } from "react";
 import { 
   Activity, 
   Save, 
@@ -11,9 +11,10 @@ import {
   Check,
   AlertTriangle 
 } from "lucide-react";
+import type { SettingsConfig } from "../../types/api";
 
 export default function SettingsPage() {
-  const [settings, setSettings] = useState<any>({
+  const [settings, setSettings] = useState<SettingsConfig>({
     mock_mode: true,
     github_token: "",
     openai_key: "",
@@ -41,16 +42,16 @@ export default function SettingsPage() {
       });
   }, []);
 
-  const handleChange = (e: any) => {
+  const handleChange = (e: ChangeEvent<HTMLInputElement>) => {
     const { name, value, type, checked } = e.target;
-    setSettings((prev: any) => ({
+    setSettings((prev) => ({
       ...prev,
-      [name]: type === "checkbox" ? checked : value
+      [name]: type === "checkbox" ? checked : name === "collectors_limit" ? Number(value) : value
     }));
   };
 
   // Save Settings
-  const handleSave = async (e: any) => {
+  const handleSave = async (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     setSaving(true);
     try {

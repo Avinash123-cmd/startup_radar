@@ -1,10 +1,11 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Activity, Lightbulb, TrendingUp, Sparkles, CheckCircle } from "lucide-react";
+import { Activity, Lightbulb, Sparkles, CheckCircle } from "lucide-react";
+import type { Opportunity } from "../../types/api";
 
 export default function OpportunitiesPage() {
-  const [opportunities, setOpportunities] = useState<any[]>([]);
+  const [opportunities, setOpportunities] = useState<Opportunity[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
