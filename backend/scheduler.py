@@ -25,19 +25,49 @@ def release_lock():
     except Exception:
         pass
 
+def _is_process_alive(pid: int) -> bool:
+    if pid <= 0:
+        return False
+    if os.name == 'nt':
+        import ctypes
+        try:
+            kernel32 = ctypes.windll.kernel32
+            PROCESS_QUERY_INFORMATION = 0x0400
+            handle = kernel32.OpenProcess(PROCESS_QUERY_INFORMATION, False, pid)
+            if handle:
+                kernel32.CloseHandle(handle)
+                return True
+        except Exception:
+            pass
+        return False
+    else:
+        try:
+            os.kill(pid, 0)
+            return True
+        except OSError:
+            return False
+
+
 def start_scheduler():
     # Multi-worker safety check: prevent duplicate schedulers in Uvicorn processes
     if LOCK_FILE.exists():
         try:
-            # Check modification time to prevent stale locks from crashed runs
-            mtime = LOCK_FILE.stat().st_mtime
-            if time.time() - mtime < 60:
-                print("Scheduler: Active scheduler detected in another worker. Skipping startup.")
-                return None
+            pid_str = LOCK_FILE.read_text().strip()
+            if pid_str:
+                pid = int(pid_str)
+                if _is_process_alive(pid):
+                    print(f"Scheduler: Active scheduler detected in another worker (PID {pid}). Skipping startup.")
+                    return None
+                else:
+                    print(f"Scheduler: Stale lock file found (PID {pid} is not running). Releasing lock.")
+                    release_lock()
             else:
                 release_lock()
         except Exception:
-            pass
+            try:
+                release_lock()
+            except Exception:
+                pass
 
     try:
         LOCK_FILE.write_text(str(os.getpid()))

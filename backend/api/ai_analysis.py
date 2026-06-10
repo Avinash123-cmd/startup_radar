@@ -102,10 +102,19 @@ def get_ai_analysis(
     db: Session = Depends(get_db),
 ) -> AIAnalysisResponse:
 
+    from reports.ai_analyst import _cache, CACHE_TTL_SECONDS
+    import time
+
     # Force-clear cache entry when requested
     if force_refresh:
-        from reports.ai_analyst import _cache
         _cache.pop(slug, None)
+
+    # Detect whether a valid unexpired cache entry is present before run_ai_analysis is executed
+    cached_flag = False
+    if slug in _cache:
+        entry = _cache[slug]
+        if entry and time.monotonic() < entry[1]:
+            cached_flag = True
 
     try:
         result = run_ai_analysis(slug, db)
@@ -120,12 +129,6 @@ def get_ai_analysis(
             status_code=500,
             detail=f"Analysis engine error: {exc}",
         ) from exc
-
-    # Detect whether the result came from cache by checking generated_at age
-    from datetime import datetime, timezone
-    import time
-    from reports.ai_analyst import _cache
-    cached_flag = slug in _cache
 
     return _to_response(result, cached=cached_flag)
 

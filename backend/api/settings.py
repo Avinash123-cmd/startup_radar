@@ -3,7 +3,7 @@ from sqlalchemy.orm import Session
 from database.db import get_db
 from database.crud import clear_all_data, seed_categories
 from database.schemas import SettingsConfig, SettingsConfigUpdate
-from config import get_runtime_settings, get_settings, save_settings
+from config import get_runtime_settings, get_settings, save_settings, get_platform_status
 from pipeline import run_pipeline
 
 router = APIRouter(tags=["Settings"])
@@ -29,3 +29,11 @@ def trigger_reset(background_tasks: BackgroundTasks, db: Session = Depends(get_d
 
     background_tasks.add_task(run_pipeline, get_runtime_settings())
     return {"message": "Database successfully reset and analysis queued!"}
+
+@router.get("/platform-status")
+def get_platform_status_endpoint(db: Session = Depends(get_db)):
+    status, warnings = get_platform_status(db)
+    return {
+        "status": status,
+        "warnings": warnings
+    }

@@ -41,13 +41,25 @@ def collect_ph(db=None, settings: dict | None = None) -> CollectorBatch:
           }
         }
         """
-        response = requests.post(
-            PRODUCT_HUNT_GRAPHQL_URL,
-            headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
-            json={"query": query, "variables": {"first": limit}},
-            timeout=25,
-        )
-        response.raise_for_status()
+        import time
+        max_retries = 3
+        backoff = 2
+        response = None
+        for attempt in range(max_retries):
+            try:
+                response = requests.post(
+                    PRODUCT_HUNT_GRAPHQL_URL,
+                    headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
+                    json={"query": query, "variables": {"first": limit}},
+                    timeout=25,
+                )
+                response.raise_for_status()
+                break
+            except requests.RequestException as e:
+                if attempt == max_retries - 1:
+                    raise RuntimeError(f"Product Hunt API request failed after {max_retries} attempts: {e}")
+                time.sleep(backoff)
+                backoff *= 2
         payload = response.json()
         if payload.get("errors"):
             raise RuntimeError(str(payload["errors"]))

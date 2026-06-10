@@ -148,3 +148,66 @@ class CollectorRun(Base):
     message = Column(Text, nullable=True)
 
     pipeline_run = relationship("PipelineRun", back_populates="collector_runs")
+
+
+# ==========================================
+# WATCHLIST MODELS
+# ==========================================
+class Watchlist(Base):
+    __tablename__ = "watchlists"
+
+    id = Column(Integer, primary_key=True, index=True)
+    name = Column(String(100), nullable=False)
+    description = Column(Text, nullable=True)
+    is_active = Column(Integer, default=1, index=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    category_items = relationship("WatchlistCategory", back_populates="watchlist", cascade="all, delete-orphan")
+    repository_items = relationship("WatchlistRepository", back_populates="watchlist", cascade="all, delete-orphan")
+    alerts = relationship("Alert", back_populates="watchlist", cascade="all, delete-orphan")
+
+
+class WatchlistCategory(Base):
+    __tablename__ = "watchlist_categories"
+
+    id = Column(Integer, primary_key=True, index=True)
+    watchlist_id = Column(Integer, ForeignKey("watchlists.id", ondelete="CASCADE"), nullable=False)
+    category_id = Column(Integer, ForeignKey("categories.id", ondelete="CASCADE"), nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    watchlist = relationship("Watchlist", back_populates="category_items")
+    category = relationship("Category")
+
+
+class WatchlistRepository(Base):
+    __tablename__ = "watchlist_repositories"
+
+    id = Column(Integer, primary_key=True, index=True)
+    watchlist_id = Column(Integer, ForeignKey("watchlists.id", ondelete="CASCADE"), nullable=False)
+    repository_id = Column(Integer, ForeignKey("repositories.id", ondelete="CASCADE"), nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    watchlist = relationship("Watchlist", back_populates="repository_items")
+    repository = relationship("Repository")
+
+
+class Alert(Base):
+    __tablename__ = "alerts"
+
+    id = Column(Integer, primary_key=True, index=True)
+    watchlist_id = Column(Integer, ForeignKey("watchlists.id", ondelete="CASCADE"), nullable=False)
+    severity = Column(String(20), index=True, nullable=False)
+    alert_type = Column(String(50), index=True, nullable=False)
+    category_id = Column(Integer, ForeignKey("categories.id", ondelete="SET NULL"), nullable=True)
+    repository_id = Column(Integer, ForeignKey("repositories.id", ondelete="SET NULL"), nullable=True)
+    title = Column(String(255), nullable=False)
+    message = Column(Text, nullable=False)
+    previous_value = Column(Float, nullable=True)
+    current_value = Column(Float, nullable=True)
+    change_percent = Column(Float, nullable=True)
+    is_read = Column(Integer, default=0, index=True)
+    created_at = Column(DateTime, default=datetime.utcnow, index=True)
+
+    watchlist = relationship("Watchlist", back_populates="alerts")
+    category = relationship("Category")
+    repository = relationship("Repository")

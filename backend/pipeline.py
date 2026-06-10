@@ -1,5 +1,9 @@
 from __future__ import annotations
 
+import os
+import time
+import logging
+from pathlib import Path
 from dataclasses import dataclass
 
 from classification.classifier import MarketClassifier
@@ -12,6 +16,7 @@ from database.crud import (
     create_pipeline_run,
     finish_pipeline_run,
     get_category_by_slug,
+    prune_repository_snapshots,
     seed_categories,
 )
 from database.db import SessionLocal, engine
@@ -23,6 +28,64 @@ from opportunities.opportunity_engine import generate_opportunities
 from reports.report_engine import generate_weekly_report
 
 
+logger = logging.getLogger(__name__)
+
+LOCK_FILE = Path(__file__).resolve().parent / "database" / "pipeline.lock"
+
+class PipelineLock:
+    def __enter__(self) -> bool:
+        try:
+            LOCK_FILE.parent.mkdir(parents=True, exist_ok=True)
+            self.fd = os.open(LOCK_FILE, os.O_CREAT | os.O_WRONLY | os.O_EXCL)
+            os.write(self.fd, str(os.getpid()).encode())
+            return True
+        except FileExistsError:
+            try:
+                with open(LOCK_FILE, "r") as f:
+                    pid = int(f.read().strip())
+                if not self._is_process_alive(pid):
+                    try:
+                        os.unlink(LOCK_FILE)
+                    except Exception:
+                        pass
+                    self.fd = os.open(LOCK_FILE, os.O_CREAT | os.O_WRONLY | os.O_EXCL)
+                    os.write(self.fd, str(os.getpid()).encode())
+                    return True
+            except Exception:
+                pass
+            return False
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        if hasattr(self, 'fd'):
+            try:
+                os.close(self.fd)
+            except Exception:
+                pass
+            try:
+                os.unlink(LOCK_FILE)
+            except Exception:
+                pass
+
+    def _is_process_alive(self, pid: int) -> bool:
+        if pid <= 0:
+            return False
+        if os.name == 'nt':
+            import ctypes
+            kernel32 = ctypes.windll.kernel32
+            PROCESS_QUERY_INFORMATION = 0x0400
+            handle = kernel32.OpenProcess(PROCESS_QUERY_INFORMATION, False, pid)
+            if handle:
+                kernel32.CloseHandle(handle)
+                return True
+            return False
+        else:
+            try:
+                os.kill(pid, 0)
+                return True
+            except OSError:
+                return False
+
+
 @dataclass(frozen=True)
 class PipelineResult:
     status: str
@@ -32,98 +95,143 @@ class PipelineResult:
 
 
 def run_pipeline(settings: dict | None = None, include_reports: bool = True) -> PipelineResult:
-    run_migrations(engine)
-    db = SessionLocal()
-    pipeline_run = None
-    records_collected = 0
-    records_saved = 0
-    messages: list[str] = []
-
-    try:
-        seed_categories(db)
-        pipeline_run = create_pipeline_run(db)
-        batches = collect_all_sources(settings or get_runtime_settings())
-        classifier = MarketClassifier()
-
-        for batch in batches:
-            saved = _persist_batch(db, batch, classifier)
-            records_collected += len(batch.records)
-            records_saved += saved
-            add_collector_run(
-                db=db,
-                pipeline_run_id=pipeline_run.id,
-                source=batch.source,
-                status=batch.status,
-                started_at=batch.started_at,
-                finished_at=batch.finished_at,
-                records_collected=len(batch.records),
-                records_saved=saved,
-                message=batch.message,
-            )
-            if batch.status != "success":
-                messages.append(f"{batch.source}: {batch.status} - {batch.message}")
-
-        compute_trends(db)
-        generate_opportunities(db)
-        if include_reports:
-            generate_weekly_report(db)
-
-        status = "success" if not any(message for message in messages if "failed" in message) else "partial"
-        finish_pipeline_run(
-            db,
-            pipeline_run,
-            status=status,
-            records_collected=records_collected,
-            records_saved=records_saved,
-            message="Pipeline completed." if not messages else "Pipeline completed with source issues.",
-            errors=messages,
+    lock = PipelineLock()
+    if not lock.__enter__():
+        logger.warning("Pipeline run skipped: Another process is executing the pipeline.")
+        return PipelineResult(
+            status="skipped",
+            records_collected=0,
+            records_saved=0,
+            messages=["Pipeline execution skipped: Another process is currently running the pipeline."]
         )
-        return PipelineResult(status, records_collected, records_saved, messages)
-    except Exception as exc:
-        messages.append(str(exc))
-        if pipeline_run:
-            finish_pipeline_run(
-                db,
-                pipeline_run,
-                status="failed",
-                records_collected=records_collected,
-                records_saved=records_saved,
-                message="Pipeline failed.",
-                errors=messages,
-            )
-        raise
-    finally:
-        db.close()
-
-
-def collect_and_persist_signals(settings: dict | None = None) -> PipelineResult:
-    run_migrations(engine)
-    db = SessionLocal()
     try:
-        seed_categories(db)
-        classifier = MarketClassifier()
+        run_migrations(engine)
+        db = SessionLocal()
+        # Cleanup any mock repositories to ensure metrics come only from real collected repositories
+        from database.models import Repository, MarketDataPoint
+        db.query(Repository).filter(
+            (Repository.full_name.like("mock-owner/%")) | (Repository.name.like("mock-%"))
+        ).delete(synchronize_session=False)
+        db.query(MarketDataPoint).filter(
+            MarketDataPoint.external_id.like("mock-hn-%")
+        ).delete(synchronize_session=False)
+        db.commit()
+
+        pipeline_run = None
         records_collected = 0
         records_saved = 0
         messages: list[str] = []
-        for batch in collect_all_sources(settings or get_runtime_settings()):
-            saved = _persist_batch(db, batch, classifier)
-            records_collected += len(batch.records)
-            records_saved += saved
-            add_collector_run(
-                db=db,
-                source=batch.source,
-                status=batch.status,
-                records_collected=len(batch.records),
-                records_saved=saved,
-                message=batch.message,
-                started_at=batch.started_at,
-                finished_at=batch.finished_at,
+
+        try:
+            seed_categories(db)
+            pipeline_run = create_pipeline_run(db)
+            batches = collect_all_sources(settings or get_runtime_settings())
+            classifier = MarketClassifier()
+
+            for batch in batches:
+                saved = _persist_batch(db, batch, classifier)
+                records_collected += len(batch.records)
+                records_saved += saved
+                add_collector_run(
+                    db=db,
+                    pipeline_run_id=pipeline_run.id,
+                    source=batch.source,
+                    status=batch.status,
+                    started_at=batch.started_at,
+                    finished_at=batch.finished_at,
+                    records_collected=len(batch.records),
+                    records_saved=saved,
+                    message=batch.message,
+                )
+                if batch.status != "success":
+                    messages.append(f"{batch.source}: {batch.status} - {batch.message}")
+
+            compute_trends(db)
+            generate_opportunities(db)
+            prune_repository_snapshots(db, keep_limit=30)
+            if include_reports:
+                generate_weekly_report(db)
+
+            status = "success" if not any(message for message in messages if "failed" in message) else "partial"
+            finish_pipeline_run(
+                db,
+                pipeline_run,
+                status=status,
+                records_collected=records_collected,
+                records_saved=records_saved,
+                message="Pipeline completed." if not messages else "Pipeline completed with source issues.",
+                errors=messages,
             )
-            if batch.status != "success":
-                messages.append(f"{batch.source}: {batch.status} - {batch.message}")
-        return PipelineResult("success", records_collected, records_saved, messages)
+            return PipelineResult(status, records_collected, records_saved, messages)
+        except Exception as exc:
+            messages.append(str(exc))
+            if pipeline_run:
+                finish_pipeline_run(
+                    db,
+                    pipeline_run,
+                    status="failed",
+                    records_collected=records_collected,
+                    records_saved=records_saved,
+                    message="Pipeline failed.",
+                    errors=messages,
+                )
+            raise
+        finally:
+            db.close()
     finally:
-        db.close()
+        lock.__exit__(None, None, None)
+
+
+def collect_and_persist_signals(settings: dict | None = None) -> PipelineResult:
+    lock = PipelineLock()
+    if not lock.__enter__():
+        logger.warning("Pipeline collect run skipped: Another process is executing the pipeline.")
+        return PipelineResult(
+            status="skipped",
+            records_collected=0,
+            records_saved=0,
+            messages=["Pipeline execution skipped: Another process is currently running the pipeline."]
+        )
+    try:
+        run_migrations(engine)
+        db = SessionLocal()
+        # Cleanup any mock repositories to ensure metrics come only from real collected repositories
+        from database.models import Repository, MarketDataPoint
+        db.query(Repository).filter(
+            (Repository.full_name.like("mock-owner/%")) | (Repository.name.like("mock-%"))
+        ).delete(synchronize_session=False)
+        db.query(MarketDataPoint).filter(
+            MarketDataPoint.external_id.like("mock-hn-%")
+        ).delete(synchronize_session=False)
+        db.commit()
+
+        try:
+            seed_categories(db)
+            classifier = MarketClassifier()
+            records_collected = 0
+            records_saved = 0
+            messages: list[str] = []
+            for batch in collect_all_sources(settings or get_runtime_settings()):
+                saved = _persist_batch(db, batch, classifier)
+                records_collected += len(batch.records)
+                records_saved += saved
+                add_collector_run(
+                    db=db,
+                    source=batch.source,
+                    status=batch.status,
+                    records_collected=len(batch.records),
+                    records_saved=saved,
+                    message=batch.message,
+                    started_at=batch.started_at,
+                    finished_at=batch.finished_at,
+                )
+                if batch.status != "success":
+                    messages.append(f"{batch.source}: {batch.status} - {batch.message}")
+            return PipelineResult("success", records_collected, records_saved, messages)
+        finally:
+            db.close()
+    finally:
+        lock.__exit__(None, None, None)
 
 
 def _persist_batch(db, batch: CollectorBatch, classifier: MarketClassifier) -> int:

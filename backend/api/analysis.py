@@ -8,7 +8,7 @@ import json
 from database.db import get_db
 from database.models import TrendHistory, MarketDataPoint, Repository, Category
 from database.crud import get_category_by_slug
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ConfigDict
 
 router = APIRouter(tags=["Analysis"])
 
@@ -25,8 +25,7 @@ class RepositorySummary(BaseModel):
     forks: int
     language: Optional[str] = None
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class AnalysisResponse(BaseModel):

@@ -4,6 +4,7 @@ from datetime import datetime, timedelta
 import json
 from classification.taxonomy import category_seed_rows
 from database.models import (
+    Alert,
     Category,
     CollectorRun,
     MarketDataPoint,
@@ -13,6 +14,9 @@ from database.models import (
     RepositorySnapshot,
     TrendHistory,
     WeeklyReport,
+    Watchlist,
+    WatchlistCategory,
+    WatchlistRepository,
 )
 
 # ==========================================
@@ -377,3 +381,220 @@ def _json_dumps(value):
     if isinstance(value, str):
         return value
     return json.dumps(value, ensure_ascii=False, default=str)
+
+
+# ==========================================
+# WATCHLIST CRUD
+# ==========================================
+def get_watchlists(db: Session, is_active: bool = True):
+    query = db.query(Watchlist)
+    if is_active is not None:
+        query = query.filter(Watchlist.is_active == (1 if is_active else 0))
+    return query.order_by(desc(Watchlist.created_at)).all()
+
+
+def get_watchlist_by_id(db: Session, watchlist_id: int):
+    return db.query(Watchlist).filter(Watchlist.id == watchlist_id).first()
+
+
+def create_watchlist(db: Session, name: str, description: str = None) -> Watchlist:
+    watchlist = Watchlist(name=name, description=description)
+    db.add(watchlist)
+    db.commit()
+    db.refresh(watchlist)
+    return watchlist
+
+
+def add_category_to_watchlist(db: Session, watchlist_id: int, category_id: int):
+    existing = db.query(WatchlistCategory).filter(
+        WatchlistCategory.watchlist_id == watchlist_id,
+        WatchlistCategory.category_id == category_id
+    ).first()
+    if existing:
+        return existing
+    item = WatchlistCategory(watchlist_id=watchlist_id, category_id=category_id)
+    db.add(item)
+    db.commit()
+    db.refresh(item)
+    return item
+
+
+def add_repository_to_watchlist(db: Session, watchlist_id: int, repository_id: int):
+    existing = db.query(WatchlistRepository).filter(
+        WatchlistRepository.watchlist_id == watchlist_id,
+        WatchlistRepository.repository_id == repository_id
+    ).first()
+    if existing:
+        return existing
+    item = WatchlistRepository(watchlist_id=watchlist_id, repository_id=repository_id)
+    db.add(item)
+    db.commit()
+    db.refresh(item)
+    return item
+
+
+def remove_category_from_watchlist(db: Session, watchlist_id: int, category_id: int):
+    db.query(WatchlistCategory).filter(
+        WatchlistCategory.watchlist_id == watchlist_id,
+        WatchlistCategory.category_id == category_id
+    ).delete()
+    db.commit()
+
+
+def remove_repository_from_watchlist(db: Session, watchlist_id: int, repository_id: int):
+    db.query(WatchlistRepository).filter(
+        WatchlistRepository.watchlist_id == watchlist_id,
+        WatchlistRepository.repository_id == repository_id
+    ).delete()
+    db.commit()
+
+
+# ==========================================
+# ALERT CRUD
+# ==========================================
+def create_alert(
+    db: Session,
+    watchlist_id: int,
+    severity: str,
+    alert_type: str,
+    title: str,
+    message: str,
+    category_id: int = None,
+    repository_id: int = None,
+    previous_value: float = None,
+    current_value: float = None,
+    change_percent: float = None,
+):
+    alert = Alert(
+        watchlist_id=watchlist_id,
+        severity=severity,
+        alert_type=alert_type,
+        category_id=category_id,
+        repository_id=repository_id,
+        title=title,
+        message=message,
+        previous_value=previous_value,
+        current_value=current_value,
+        change_percent=change_percent,
+    )
+    db.add(alert)
+    db.commit()
+    db.refresh(alert)
+    return alert
+
+
+def get_alerts(
+    db: Session,
+    watchlist_id: int = None,
+    severity: str = None,
+    is_read: bool = False,
+    limit: int = 50
+):
+    query = db.query(Alert)
+    if watchlist_id:
+        query = query.filter(Alert.watchlist_id == watchlist_id)
+    if severity:
+        query = query.filter(Alert.severity == severity)
+    if is_read is not None:
+        query = query.filter(Alert.is_read == (1 if is_read else 0))
+    return query.order_by(desc(Alert.created_at)).limit(limit).all()
+
+
+def mark_alert_read(db: Session, alert_id: int):
+    alert = db.query(Alert).filter(Alert.id == alert_id).first()
+    if alert:
+        alert.is_read = 1
+        db.commit()
+        db.refresh(alert)
+    return alert
+
+
+def get_alert_by_id(db: Session, alert_id: int):
+    return db.query(Alert).filter(Alert.id == alert_id).first()
+
+
+# ==========================================
+# PRODUCTION HARDENING / INTEGRITY CRUD
+# ==========================================
+def prune_repository_snapshots(db: Session, keep_limit: int = 30):
+    """
+    Keep only the latest `keep_limit` snapshots per repository (ordered by recorded_at desc)
+    and delete any older snapshots.
+    """
+    # Get all repository IDs that have snapshots
+    repo_ids = [r[0] for r in db.query(RepositorySnapshot.repository_id).distinct().all()]
+    
+    for repo_id in repo_ids:
+        # Find all snapshots for this repository, ordered by recorded_at descending
+        snapshots = (
+            db.query(RepositorySnapshot)
+            .filter(RepositorySnapshot.repository_id == repo_id)
+            .order_by(RepositorySnapshot.recorded_at.desc())
+            .all()
+        )
+        if len(snapshots) > keep_limit:
+            to_delete = snapshots[keep_limit:]
+            for snap in to_delete:
+                db.delete(snap)
+    db.commit()
+
+
+def verify_data_integrity(db: Session):
+    warnings = []
+    
+    # 1. Categories checks
+    categories = db.query(Category).all()
+    cat_ids = {c.id for c in categories}
+    
+    # 2. Repository checks
+    repos = db.query(Repository).all()
+    for repo in repos:
+        if repo.category_id not in cat_ids:
+            warnings.append(f"Repository {repo.full_name} (ID: {repo.id}) points to non-existent Category ID {repo.category_id}")
+            
+    # 3. RepositorySnapshot checks
+    repo_ids = {r.id for r in repos}
+    snapshots = db.query(RepositorySnapshot).all()
+    for snap in snapshots:
+        if snap.repository_id not in repo_ids:
+            warnings.append(f"RepositorySnapshot ID {snap.id} points to non-existent Repository ID {snap.repository_id}")
+            
+    # 4. TrendHistory checks
+    trends = db.query(TrendHistory).all()
+    for trend in trends:
+        if trend.category_id not in cat_ids:
+            warnings.append(f"TrendHistory ID {trend.id} points to non-existent Category ID {trend.category_id}")
+            
+    # 5. Opportunity checks
+    opps = db.query(Opportunity).all()
+    for opp in opps:
+        matched_cat = [c for c in categories if c.name == opp.niche]
+        if not matched_cat:
+            warnings.append(f"Opportunity ID {opp.id} (niche: '{opp.niche}') does not match any valid Category name")
+            
+    # 6. TrendHistory star totals check
+    for cat in categories:
+        cat_repos = [r for r in repos if r.category_id == cat.id]
+        expected_stars = sum(r.stars for r in cat_repos)
+        
+        latest_trend = (
+            db.query(TrendHistory)
+            .filter(TrendHistory.category_id == cat.id)
+            .order_by(TrendHistory.recorded_at.desc())
+            .first()
+        )
+        if latest_trend and latest_trend.star_count != expected_stars:
+            warnings.append(
+                f"Category '{cat.name}' star consistency error: "
+                f"Repository sum stars = {expected_stars}, TrendHistory star_count = {latest_trend.star_count}"
+            )
+            
+    success = len(warnings) == 0
+    return {
+        "success": success,
+        "warnings": warnings,
+        "checked_categories": len(categories),
+        "checked_repositories": len(repos),
+        "checked_snapshots": len(snapshots),
+        "checked_opportunities": len(opps)
+    }

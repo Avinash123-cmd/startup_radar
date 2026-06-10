@@ -136,6 +136,8 @@ def _calculate_star_growth(db: Session, repos: list[Repository], window_start: d
 def _growth_rate(star_count: int, star_growth_30d: int) -> float:
     base = star_count - star_growth_30d
     if base <= 0:
+        if star_growth_30d > 0:
+            return round((star_growth_30d / 1.0) * 100.0, 2)
         return 0.0
     return round((star_growth_30d / base) * 100.0, 2)
 

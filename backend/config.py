@@ -65,3 +65,37 @@ def save_settings(new_config: dict):
         json.dump(persisted, f, indent=4)
         
     return current
+
+
+def get_platform_status(db) -> tuple[str, list[str]]:
+    import os
+    from database.models import CollectorRun, Repository
+    
+    warnings = []
+    token = os.getenv("GITHUB_TOKEN", "")
+    if not token:
+        warnings.append("GITHUB_TOKEN is missing. Repository collection runs in Limited Data Mode using the unauthenticated public GitHub API.")
+        status = "Limited Data Mode"
+    else:
+        last_run = (
+            db.query(CollectorRun)
+            .filter(CollectorRun.source == "github")
+            .order_by(CollectorRun.started_at.desc())
+            .first()
+        )
+        if last_run and last_run.status == "failed":
+            warnings.append(f"Last GitHub repository collection run failed: {last_run.message}")
+            status = "Limited Data Mode"
+        elif last_run and last_run.status == "skipped":
+            warnings.append(f"Last GitHub repository collection run was skipped: {last_run.message}")
+            status = "Limited Data Mode"
+        else:
+            status = "Live Data Mode"
+            
+    repo_count = db.query(Repository).count()
+    if repo_count == 0:
+        warnings.append("No repositories found in database. Run sync to populate.")
+        status = "Limited Data Mode"
+        
+    return status, warnings
+

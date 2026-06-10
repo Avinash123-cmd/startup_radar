@@ -458,7 +458,7 @@ def _compute_confidence(gap: MarketGap) -> float:
     demand_norm = min(gap.demand_score / 100.0, 1.0)
     competition_inv = 1.0 - min(gap.competition_score / 100.0, 1.0)
     opp_norm = min(gap.opportunity_score / 100.0, 1.0)
-    gap_conf = min(max(gap.confidence, 0.0), 1.0)
+    gap_conf = min(max(gap.confidence / 100.0, 0.0), 1.0)
 
     raw = (
         gap_conf       * 0.35
@@ -488,7 +488,7 @@ def _build_difficulty_adjustment(base: str, gap: MarketGap) -> str:
     if base == "High":
         return "High"
     # Medium → possibly High if data is thin
-    if len(gap.evidence_terms) < 3 and gap.confidence < 0.4:
+    if len(gap.evidence_terms) < 3 and gap.confidence < 40.0:
         return "High"
     return "Medium"
 

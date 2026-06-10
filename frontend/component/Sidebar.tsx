@@ -9,7 +9,8 @@ import {
   Database, 
   FileText, 
   Settings as SettingsIcon,
-  Activity
+  Activity,
+  ShieldAlert
 } from "lucide-react";
 
 export default function Sidebar() {
@@ -20,6 +21,7 @@ export default function Sidebar() {
     { name: "Trends", href: "/trends", icon: TrendingUp },
     { name: "Opportunities", href: "/opportunities", icon: Lightbulb },
     { name: "Repositories", href: "/repositories", icon: Database },
+    { name: "Watchlist", href: "/watchlist", icon: ShieldAlert },
     { name: "Reports", href: "/reports", icon: FileText },
     { name: "Settings", href: "/settings", icon: SettingsIcon },
   ];

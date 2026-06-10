@@ -9,6 +9,7 @@ from sqlalchemy.engine import Engine
 from database.models import Base
 
 MIGRATION_VERSION = "20260608_production_refactor"
+WATCHLIST_MIGRATION_VERSION = "20260609_watchlist_intelligence"
 
 
 def run_migrations(engine: Engine) -> None:
@@ -19,54 +20,61 @@ def run_migrations(engine: Engine) -> None:
             row[0]
             for row in conn.execute(text("SELECT version FROM schema_migrations")).fetchall()
         }
-        if MIGRATION_VERSION in applied:
-            return
+        # Run core migrations
+        if MIGRATION_VERSION not in applied:
+            inspector = inspect(conn)
+            tables = set(inspector.get_table_names())
 
-        inspector = inspect(conn)
-        tables = set(inspector.get_table_names())
+            if "market_data_points" in tables:
+                _ensure_columns(
+                    conn,
+                    "market_data_points",
+                    {
+                        "normalized_text": "TEXT",
+                        "classification_confidence": "FLOAT DEFAULT 0.0",
+                        "classification_evidence": "TEXT",
+                        "raw_payload": "TEXT",
+                        "updated_at": "DATETIME",
+                    },
+                )
 
-        if "market_data_points" in tables:
-            _ensure_columns(
-                conn,
-                "market_data_points",
-                {
-                    "normalized_text": "TEXT",
-                    "classification_confidence": "FLOAT DEFAULT 0.0",
-                    "classification_evidence": "TEXT",
-                    "raw_payload": "TEXT",
-                    "updated_at": "DATETIME",
-                },
+            if "trend_history" in tables:
+                _ensure_columns(
+                    conn,
+                    "trend_history",
+                    {
+                        "source_breakdown": "TEXT",
+                        "score_components": "TEXT",
+                    },
+                )
+
+            if "opportunities" in tables:
+                _ensure_columns(
+                    conn,
+                    "opportunities",
+                    {
+                        "evidence": "TEXT",
+                        "gap_score": "FLOAT DEFAULT 0.0",
+                        "score_components": "TEXT",
+                    },
+                )
+
+            if "weekly_reports" in tables:
+                _ensure_columns(conn, "weekly_reports", {"context_snapshot": "TEXT"})
+
+            _migrate_product_hunt_products(conn, tables)
+            conn.execute(
+                text("INSERT INTO schema_migrations (version, applied_at) VALUES (:version, :applied_at)"),
+                {"version": MIGRATION_VERSION, "applied_at": datetime.utcnow()},
             )
 
-        if "trend_history" in tables:
-            _ensure_columns(
-                conn,
-                "trend_history",
-                {
-                    "source_breakdown": "TEXT",
-                    "score_components": "TEXT",
-                },
+        # Run watchlist migrations
+        if WATCHLIST_MIGRATION_VERSION not in applied:
+            _ensure_watchlist_tables(conn)
+            conn.execute(
+                text("INSERT INTO schema_migrations (version, applied_at) VALUES (:version, :applied_at)"),
+                {"version": WATCHLIST_MIGRATION_VERSION, "applied_at": datetime.utcnow()},
             )
-
-        if "opportunities" in tables:
-            _ensure_columns(
-                conn,
-                "opportunities",
-                {
-                    "evidence": "TEXT",
-                    "gap_score": "FLOAT DEFAULT 0.0",
-                    "score_components": "TEXT",
-                },
-            )
-
-        if "weekly_reports" in tables:
-            _ensure_columns(conn, "weekly_reports", {"context_snapshot": "TEXT"})
-
-        _migrate_product_hunt_products(conn, tables)
-        conn.execute(
-            text("INSERT INTO schema_migrations (version, applied_at) VALUES (:version, :applied_at)"),
-            {"version": MIGRATION_VERSION, "applied_at": datetime.utcnow()},
-        )
 
 
 def _ensure_schema_migrations(conn) -> None:
@@ -161,3 +169,61 @@ def _loads(value: str | None):
         return json.loads(value)
     except json.JSONDecodeError:
         return []
+
+
+def _ensure_watchlist_tables(conn) -> None:
+    inspector = inspect(conn)
+    existing_tables = set(inspector.get_table_names())
+
+    if "watchlists" not in existing_tables:
+        conn.execute(text(
+            "CREATE TABLE watchlists ("
+            "id INTEGER PRIMARY KEY AUTOINCREMENT, "
+            "name VARCHAR(100) NOT NULL, "
+            "description TEXT, "
+            "is_active INTEGER DEFAULT 1, "
+            "created_at DATETIME NOT NULL)"
+        ))
+
+    if "watchlist_categories" not in existing_tables:
+        conn.execute(text(
+            "CREATE TABLE watchlist_categories ("
+            "id INTEGER PRIMARY KEY AUTOINCREMENT, "
+            "watchlist_id INTEGER NOT NULL, "
+            "category_id INTEGER NOT NULL, "
+            "created_at DATETIME NOT NULL, "
+            "FOREIGN KEY (watchlist_id) REFERENCES watchlists(id) ON DELETE CASCADE, "
+            "FOREIGN KEY (category_id) REFERENCES categories(id) ON DELETE CASCADE)"
+        ))
+
+    if "watchlist_repositories" not in existing_tables:
+        conn.execute(text(
+            "CREATE TABLE watchlist_repositories ("
+            "id INTEGER PRIMARY KEY AUTOINCREMENT, "
+            "watchlist_id INTEGER NOT NULL, "
+            "repository_id INTEGER NOT NULL, "
+            "created_at DATETIME NOT NULL, "
+            "FOREIGN KEY (watchlist_id) REFERENCES watchlists(id) ON DELETE CASCADE, "
+            "FOREIGN KEY (repository_id) REFERENCES repositories(id) ON DELETE CASCADE)"
+        ))
+
+    if "alerts" not in existing_tables:
+        conn.execute(text(
+            "CREATE TABLE alerts ("
+            "id INTEGER PRIMARY KEY AUTOINCREMENT, "
+            "watchlist_id INTEGER NOT NULL, "
+            "severity VARCHAR(20) NOT NULL, "
+            "alert_type VARCHAR(50) NOT NULL, "
+            "category_id INTEGER, "
+            "repository_id INTEGER, "
+            "title VARCHAR(255) NOT NULL, "
+            "message TEXT NOT NULL, "
+            "previous_value FLOAT, "
+            "current_value FLOAT, "
+            "change_percent FLOAT, "
+            "is_read INTEGER DEFAULT 0, "
+            "created_at DATETIME NOT NULL, "
+            "FOREIGN KEY (watchlist_id) REFERENCES watchlists(id) ON DELETE CASCADE, "
+            "FOREIGN KEY (category_id) REFERENCES categories(id) ON DELETE SET NULL, "
+            "FOREIGN KEY (repository_id) REFERENCES repositories(id) ON DELETE SET NULL)"
+        ))

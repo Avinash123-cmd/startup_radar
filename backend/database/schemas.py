@@ -1,4 +1,4 @@
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ConfigDict
 from datetime import datetime
 from typing import List, Optional
 
@@ -17,8 +17,7 @@ class CategoryOut(CategoryBase):
     id: int
     created_at: datetime
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 # ==========================================
 # REPOSITORY SCHEMAS
@@ -41,8 +40,7 @@ class RepositoryOut(RepositoryBase):
     created_at: datetime
     updated_at: datetime
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 class RepositoryHistoryOut(BaseModel):
     id: int
@@ -51,8 +49,7 @@ class RepositoryHistoryOut(BaseModel):
     forks: int
     recorded_at: datetime
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 class PaginatedRepositories(BaseModel):
     items: List[RepositoryOut]
@@ -75,8 +72,7 @@ class TrendHistoryOut(TrendHistoryBase):
     id: int
     recorded_at: datetime
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 class TrendSummary(BaseModel):
     category_id: int
@@ -107,8 +103,7 @@ class OpportunityOut(OpportunityBase):
     created_at: datetime
     parsed_ideas: List[str] = []
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 # ==========================================
 # WEEKLY REPORT SCHEMAS
@@ -118,14 +113,14 @@ class WeeklyReportBase(BaseModel):
     slug: str
     summary: Optional[str] = None
     content: str
+    context_snapshot: Optional[str] = None
 
 class WeeklyReportOut(WeeklyReportBase):
     id: int
     published_at: datetime
     created_at: datetime
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 # ==========================================
 # INSIGHTS & PREDICTIONS
@@ -155,3 +150,80 @@ class SettingsConfigUpdate(BaseModel):
     openai_key: Optional[str] = None
     ollama_endpoint: Optional[str] = None
     collectors_limit: Optional[int] = None
+
+
+# ==========================================
+# WATCHLIST SCHEMAS
+# ==========================================
+class WatchlistBase(BaseModel):
+    name: str
+    description: Optional[str] = None
+
+
+class WatchlistCreate(WatchlistBase):
+    pass
+
+
+class WatchlistItemBase(BaseModel):
+    watchlist_id: int
+
+
+class WatchlistItemCreate(BaseModel):
+    category_id: Optional[int] = None
+    repository_id: Optional[int] = None
+
+
+class WatchlistCategoryOut(BaseModel):
+    id: int
+    watchlist_id: int
+    category_id: int
+    created_at: datetime
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class WatchlistRepositoryOut(BaseModel):
+    id: int
+    watchlist_id: int
+    repository_id: int
+    created_at: datetime
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class WatchlistOut(WatchlistBase):
+    id: int
+    is_active: int
+    created_at: datetime
+    category_items: List[WatchlistCategoryOut] = []
+    repository_items: List[WatchlistRepositoryOut] = []
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+# ==========================================
+# ALERT SCHEMAS
+# ==========================================
+class AlertBase(BaseModel):
+    watchlist_id: int
+    severity: str
+    alert_type: str
+    title: str
+    message: str
+
+
+class AlertCreate(AlertBase):
+    pass
+
+
+class AlertOut(AlertBase):
+    id: int
+    category_id: Optional[int] = None
+    repository_id: Optional[int] = None
+    previous_value: Optional[float] = None
+    current_value: Optional[float] = None
+    change_percent: Optional[float] = None
+    is_read: int
+    created_at: datetime
+
+    model_config = ConfigDict(from_attributes=True)

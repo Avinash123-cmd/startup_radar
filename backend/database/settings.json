@@ -1,5 +1,5 @@
 {
-    "mock_mode": false,
+    "collectors_limit": 1000,
     "ollama_endpoint": "http://localhost:11434",
-    "collectors_limit": 500
+    "mock_mode": false
 }
