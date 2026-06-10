@@ -12,6 +12,7 @@ import {
   AlertTriangle
 } from "lucide-react";
 import type { SettingsConfig } from "../../types/api";
+import { API_BASE_URL, fetchWithCache } from "../../component/apiHelper";
 
 export default function SettingsPage() {
   // Config states
@@ -31,8 +32,7 @@ export default function SettingsPage() {
 
   // Load configuration
   useEffect(() => {
-    fetch("http://localhost:8000/settings")
-      .then((res) => res.json())
+    fetchWithCache<SettingsConfig>(`${API_BASE_URL}/settings`)
       .then((data) => {
         setSettings(data);
         setLoading(false);
@@ -55,12 +55,11 @@ export default function SettingsPage() {
     e.preventDefault();
     setSaving(true);
     try {
-      const res = await fetch("http://localhost:8000/settings", {
+      const data = await fetchWithCache<SettingsConfig>(`${API_BASE_URL}/settings`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(settings),
       });
-      const data = await res.json();
       setSettings(data);
       setSaveSuccess(true);
       setTimeout(() => setSaveSuccess(false), 3000);
@@ -75,8 +74,7 @@ export default function SettingsPage() {
     setSyncing(true);
     setSyncMessage("Queueing ingestion pipelines...");
     try {
-      const res = await fetch("http://localhost:8000/settings/sync", { method: "POST" });
-      const data = await res.json();
+      const data = await fetchWithCache<any>(`${API_BASE_URL}/settings/sync`, { method: "POST" });
       setSyncMessage(data.message || "Sync pipeline queued successfully!");
       setTimeout(() => setSyncMessage(""), 5000);
     } catch (err) {
@@ -97,8 +95,7 @@ export default function SettingsPage() {
     }
     setResetting(true);
     try {
-      const res = await fetch("http://localhost:8000/settings/reset", { method: "POST" });
-      const data = await res.json();
+      const data = await fetchWithCache<any>(`${API_BASE_URL}/settings/reset`, { method: "POST" });
       alert(data.message || "Database successfully reset.");
     } catch (err) {
       console.error("Database Reset Error:", err);

@@ -13,6 +13,7 @@ import {
   BookOpen
 } from "lucide-react";
 import type { WeeklyReport } from "../../types/api";
+import { API_BASE_URL, fetchWithCache } from "../../component/apiHelper";
 
 export default function ReportsPage() {
   const [reports, setReports] = useState<WeeklyReport[]>([]);
@@ -23,8 +24,7 @@ export default function ReportsPage() {
   const loadReportContent = useCallback(async (slug: string) => {
     setLoadingReport(true);
     try {
-      const res = await fetch(`http://localhost:8000/reports/${slug}`);
-      const data: WeeklyReport = await res.json();
+      const data = await fetchWithCache<WeeklyReport>(`${API_BASE_URL}/reports/${slug}`);
       setSelectedReport(data);
     } catch (err) {
       console.error("Report Content Fetch Error:", err);
@@ -34,9 +34,8 @@ export default function ReportsPage() {
   }, []);
 
   useEffect(() => {
-    fetch("http://localhost:8000/reports")
-      .then((res) => res.json())
-      .then((data: WeeklyReport[] | unknown) => {
+    fetchWithCache<WeeklyReport[]>(`${API_BASE_URL}/reports`)
+      .then((data) => {
         const list = Array.isArray(data) ? data : [];
         setReports(list);
         setLoadingList(false);

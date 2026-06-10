@@ -14,6 +14,7 @@ import {
   Info
 } from "lucide-react";
 import type { Watchlist, Alert, TrendSummary, Repository } from "../../types/api";
+import { API_BASE_URL, fetchWithCache } from "../../component/apiHelper";
 
 export default function WatchlistPage() {
   // Watchlist states
@@ -39,14 +40,12 @@ export default function WatchlistPage() {
     fetchWatchlists();
 
     // Categories
-    fetch("http://localhost:8000/trends")
-      .then((res) => res.json())
+    fetchWithCache<TrendSummary[]>(`${API_BASE_URL}/trends`)
       .then((data) => setAvailableCategories(Array.isArray(data) ? data : []))
       .catch((err) => console.error("Categories Load Error:", err));
 
     // Repositories (First 100 for dropdown)
-    fetch("http://localhost:8000/repositories?limit=100")
-      .then((res) => res.json())
+    fetchWithCache<{ items: Repository[] }>(`${API_BASE_URL}/repositories?limit=100`)
       .then((data) => {
         if (data && Array.isArray(data.items)) {
           setAvailableRepositories(data.items);
@@ -66,8 +65,7 @@ export default function WatchlistPage() {
   const fetchWatchlists = async () => {
     setWatchlistLoading(true);
     try {
-      const res = await fetch("http://localhost:8000/watchlists");
-      const data = await res.json();
+      const data = await fetchWithCache<Watchlist[]>(`${API_BASE_URL}/watchlists`);
       const list = Array.isArray(data) ? data : [];
       setWatchlists(list);
       if (list.length > 0 && selectedWatchlistId === null) {
@@ -84,18 +82,15 @@ export default function WatchlistPage() {
     e.preventDefault();
     if (!newWatchlistName.trim()) return;
     try {
-      const res = await fetch("http://localhost:8000/watchlists", {
+      const created = await fetchWithCache<any>(`${API_BASE_URL}/watchlists`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ name: newWatchlistName, description: newWatchlistDesc }),
       });
-      if (res.ok) {
-        const created = await res.json();
-        setNewWatchlistName("");
-        setNewWatchlistDesc("");
-        setSelectedWatchlistId(created.id);
-        fetchWatchlists();
-      }
+      setNewWatchlistName("");
+      setNewWatchlistDesc("");
+      setSelectedWatchlistId(created.id);
+      fetchWatchlists();
     } catch (err) {
       console.error("Create Watchlist Error:", err);
     }
@@ -104,14 +99,12 @@ export default function WatchlistPage() {
   const handleAddCategory = async () => {
     if (!selectedWatchlistId || !selectedAddCategoryId) return;
     try {
-      const res = await fetch(
-        `http://localhost:8000/watchlists/${selectedWatchlistId}/categories/${selectedAddCategoryId}`,
+      await fetchWithCache<any>(
+        `${API_BASE_URL}/watchlists/${selectedWatchlistId}/categories/${selectedAddCategoryId}`,
         { method: "POST" }
       );
-      if (res.ok) {
-        setSelectedAddCategoryId("");
-        fetchWatchlists();
-      }
+      setSelectedAddCategoryId("");
+      fetchWatchlists();
     } catch (err) {
       console.error("Add Category Error:", err);
     }
@@ -120,13 +113,11 @@ export default function WatchlistPage() {
   const handleRemoveCategory = async (catId: number) => {
     if (!selectedWatchlistId) return;
     try {
-      const res = await fetch(
-        `http://localhost:8000/watchlists/${selectedWatchlistId}/categories/${catId}`,
+      await fetchWithCache<any>(
+        `${API_BASE_URL}/watchlists/${selectedWatchlistId}/categories/${catId}`,
         { method: "DELETE" }
       );
-      if (res.ok) {
-        fetchWatchlists();
-      }
+      fetchWatchlists();
     } catch (err) {
       console.error("Remove Category Error:", err);
     }
@@ -135,14 +126,12 @@ export default function WatchlistPage() {
   const handleAddRepository = async () => {
     if (!selectedWatchlistId || !selectedAddRepoId) return;
     try {
-      const res = await fetch(
-        `http://localhost:8000/watchlists/${selectedWatchlistId}/repositories/${selectedAddRepoId}`,
+      await fetchWithCache<any>(
+        `${API_BASE_URL}/watchlists/${selectedWatchlistId}/repositories/${selectedAddRepoId}`,
         { method: "POST" }
       );
-      if (res.ok) {
-        setSelectedAddRepoId("");
-        fetchWatchlists();
-      }
+      setSelectedAddRepoId("");
+      fetchWatchlists();
     } catch (err) {
       console.error("Add Repository Error:", err);
     }
@@ -151,13 +140,11 @@ export default function WatchlistPage() {
   const handleRemoveRepository = async (repoId: number) => {
     if (!selectedWatchlistId) return;
     try {
-      const res = await fetch(
-        `http://localhost:8000/watchlists/${selectedWatchlistId}/repositories/${repoId}`,
+      await fetchWithCache<any>(
+        `${API_BASE_URL}/watchlists/${selectedWatchlistId}/repositories/${repoId}`,
         { method: "DELETE" }
       );
-      if (res.ok) {
-        fetchWatchlists();
-      }
+      fetchWatchlists();
     } catch (err) {
       console.error("Remove Repository Error:", err);
     }
@@ -166,19 +153,14 @@ export default function WatchlistPage() {
   const handleScanWatchlist = async (watchlistId: number) => {
     setScanningWatchlistId(watchlistId);
     try {
-      const res = await fetch(`http://localhost:8000/watchlists/${watchlistId}/scan`, {
+      const newAlerts = await fetchWithCache<Alert[]>(`${API_BASE_URL}/watchlists/${watchlistId}/scan`, {
         method: "POST",
       });
-      if (res.ok) {
-        const newAlerts = await res.json();
-        alert(`Anomalies scan complete! Generated ${newAlerts.length} new alerts.`);
-        fetchAlerts();
-      } else {
-        alert("Scan completed. No new anomalies triggered under cooldown rules.");
-      }
+      alert(`Anomalies scan complete! Generated ${newAlerts.length} new alerts.`);
+      fetchAlerts();
     } catch (err) {
       console.error("Scan Watchlist Error:", err);
-      alert("Scan request completed.");
+      alert("Scan completed. No new anomalies triggered under cooldown rules.");
     } finally {
       setScanningWatchlistId(null);
     }
@@ -199,8 +181,7 @@ export default function WatchlistPage() {
       }
       params.append("limit", "50");
 
-      const res = await fetch(`http://localhost:8000/alerts?${params.toString()}`);
-      const data = await res.json();
+      const data = await fetchWithCache<Alert[]>(`${API_BASE_URL}/alerts?${params.toString()}`);
       setAlerts(Array.isArray(data) ? data : []);
     } catch (err) {
       console.error("Alerts Fetch Error:", err);
@@ -211,12 +192,10 @@ export default function WatchlistPage() {
 
   const handleMarkAlertRead = async (alertId: number) => {
     try {
-      const res = await fetch(`http://localhost:8000/alerts/${alertId}/read`, {
+      await fetchWithCache<any>(`${API_BASE_URL}/alerts/${alertId}/read`, {
         method: "POST",
       });
-      if (res.ok) {
-        fetchAlerts();
-      }
+      fetchAlerts();
     } catch (err) {
       console.error("Mark Read Error:", err);
     }

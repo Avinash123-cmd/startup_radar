@@ -10,11 +10,15 @@ import {
   FileText, 
   Settings as SettingsIcon,
   Activity,
-  ShieldAlert
+  ShieldAlert,
+  LogOut,
+  User
 } from "lucide-react";
+import { useAuth } from "./AuthProvider";
 
 export default function Sidebar() {
   const pathname = usePathname();
+  const { username, logout } = useAuth();
   
   const navItems = [
     { name: "Dashboard", href: "/", icon: LayoutDashboard },
@@ -63,12 +67,31 @@ export default function Sidebar() {
       </nav>
 
       {/* Footer / Meta info */}
-      <div className="p-6 border-t border-zinc-800 text-center">
-        <div className="text-xs font-semibold text-zinc-500 uppercase tracking-widest">
-          SaaS Platform v1.0
-        </div>
-        <div className="text-[10px] text-zinc-600 mt-1">
-          Serving Market Opportunities
+      <div className="p-4 border-t border-zinc-800 space-y-3">
+        {username && (
+          <div className="flex items-center justify-between px-2 py-1.5 bg-zinc-900/50 rounded-lg border border-zinc-800">
+            <div className="flex items-center space-x-2 overflow-hidden">
+              <User className="h-4 w-4 text-indigo-400 shrink-0" />
+              <span className="text-xs font-semibold text-zinc-300 truncate" title={username}>
+                {username}
+              </span>
+            </div>
+            <button
+              onClick={logout}
+              className="text-zinc-500 hover:text-red-400 transition-colors p-1 rounded hover:bg-zinc-800/80 cursor-pointer"
+              title="Sign Out"
+            >
+              <LogOut className="h-4 w-4" />
+            </button>
+          </div>
+        )}
+        <div className="text-center">
+          <div className="text-xs font-semibold text-zinc-500 uppercase tracking-widest">
+            SaaS Platform v1.0
+          </div>
+          <div className="text-[10px] text-zinc-600 mt-1">
+            Serving Market Opportunities
+          </div>
         </div>
       </div>
     </aside>

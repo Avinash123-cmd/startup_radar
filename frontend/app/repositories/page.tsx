@@ -19,6 +19,7 @@ import {
   CheckCircle
 } from "lucide-react";
 import type { PaginatedRepositories, Repository, RepositoryHistory, TrendSummary, CompareResponse } from "../../types/api";
+import { API_BASE_URL, fetchWithCache } from "../../component/apiHelper";
 
 export default function RepositoriesPage() {
   const [repos, setRepos] = useState<Repository[]>([]);
@@ -48,14 +49,12 @@ export default function RepositoriesPage() {
   // Fetch metadata
   useEffect(() => {
     // Categories
-    fetch("http://localhost:8000/trends")
-      .then((res) => res.json())
-      .then((data: TrendSummary[] | unknown) => setCategories(Array.isArray(data) ? data : []));
+    fetchWithCache<TrendSummary[]>(`${API_BASE_URL}/trends`)
+      .then((data) => setCategories(Array.isArray(data) ? data : []));
 
     // Languages
-    fetch("http://localhost:8000/repositories/languages")
-      .then((res) => res.json())
-      .then((data: string[] | unknown) => setLanguages(Array.isArray(data) ? data : []));
+    fetchWithCache<string[]>(`${API_BASE_URL}/repositories/languages`)
+      .then((data) => setLanguages(Array.isArray(data) ? data : []));
   }, []);
 
   // Fetch repos list
@@ -71,9 +70,8 @@ export default function RepositoriesPage() {
     if (selectedCategory) params.append("category_id", selectedCategory);
     if (selectedLanguage) params.append("language", selectedLanguage);
 
-    fetch(`http://localhost:8000/repositories?${params.toString()}`)
-      .then((res) => res.json())
-      .then((data: PaginatedRepositories) => {
+    fetchWithCache<PaginatedRepositories>(`${API_BASE_URL}/repositories?${params.toString()}`)
+      .then((data) => {
         setRepos(data.items || []);
         setTotalPages(data.pages || 1);
         setLoading(false);
@@ -93,8 +91,7 @@ export default function RepositoriesPage() {
     setActiveHistoryRepo(repo);
     setHistoryLoading(true);
     try {
-      const res = await fetch(`http://localhost:8000/repositories/${repo.id}/history`);
-      const data: RepositoryHistory[] | unknown = await res.json();
+      const data = await fetchWithCache<RepositoryHistory[]>(`${API_BASE_URL}/repositories/${repo.id}/history`);
       setRepoHistoryData(Array.isArray(data) ? data : []);
     } catch (err) {
       console.error("History Modal Error:", err);
@@ -137,12 +134,7 @@ export default function RepositoriesPage() {
 
     const fullNamesParam = selectedReposToCompare.map((r) => r.full_name).join(",");
     try {
-      const res = await fetch(`http://localhost:8000/compare?repos=${encodeURIComponent(fullNamesParam)}`);
-      if (!res.ok) {
-        const errJson = await res.json();
-        throw new Error(errJson.detail || "Comparison query failed");
-      }
-      const data = await res.json();
+      const data = await fetchWithCache<CompareResponse>(`${API_BASE_URL}/compare?repos=${encodeURIComponent(fullNamesParam)}`);
       setCompareResponse(data);
     } catch (err: any) {
       console.error("Comparison Query Error:", err);
@@ -318,21 +310,29 @@ export default function RepositoriesPage() {
 
                       {/* Actions */}
                       <td className="py-4 px-6 text-center">
-                        <div className="flex items-center justify-center space-x-3">
+                        <div className="flex items-center justify-center space-x-2">
                           <button
                             onClick={() => openHistoryModal(repo)}
                             className="px-3 py-1.5 rounded-lg border border-zinc-700 hover:border-indigo-500 text-xs font-semibold text-zinc-300 hover:text-indigo-400 transition cursor-pointer"
                           >
                             Growth History
                           </button>
-                          <a
-                            href={repo.url}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="text-zinc-500 hover:text-zinc-300 transition"
-                          >
-                            <ExternalLink className="h-4 w-4" />
-                          </a>
+                          {repo.url ? (
+                            <a
+                              href={repo.url}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              title={`Open ${repo.name} on GitHub`}
+                              className="flex items-center space-x-1 px-3 py-1.5 rounded-lg border border-zinc-700 hover:border-emerald-500/60 text-xs font-semibold text-zinc-400 hover:text-emerald-400 transition"
+                            >
+                              <ExternalLink className="h-3.5 w-3.5" />
+                              <span>GitHub ↗</span>
+                            </a>
+                          ) : (
+                            <span className="px-3 py-1.5 rounded-lg border border-zinc-800 text-xs font-semibold text-zinc-600 cursor-not-allowed">
+                              No URL
+                            </span>
+                          )}
                         </div>
                       </td>
                     </tr>

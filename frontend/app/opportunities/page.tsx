@@ -17,6 +17,7 @@ import {
   Info
 } from "lucide-react";
 import type { OpportunityV2, StartupBriefV2 } from "../../types/api";
+import { API_BASE_URL, fetchWithCache } from "../../component/apiHelper";
 
 function OpportunitiesPageContent() {
   const searchParams = useSearchParams();
@@ -33,8 +34,8 @@ function OpportunitiesPageContent() {
       try {
         setLoading(true);
         const [oppsRes, briefsRes] = await Promise.all([
-          fetch("http://localhost:8000/opportunities/v2?limit=50").then((res) => res.json()),
-          fetch("http://localhost:8000/startup-generator?limit=50").then((res) => res.json()),
+          fetchWithCache<any>(`${API_BASE_URL}/opportunities/v2?limit=50`),
+          fetchWithCache<any>(`${API_BASE_URL}/startup-generator?limit=50`),
         ]);
 
         const oppsList = Array.isArray(oppsRes.opportunities) ? oppsRes.opportunities : [];

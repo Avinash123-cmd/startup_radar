@@ -17,6 +17,7 @@ import {
   PieChart
 } from "lucide-react";
 import type { TrendSummary, AnalysisResponse } from "../../types/api";
+import { API_BASE_URL, fetchWithCache } from "../../component/apiHelper";
 
 export default function TrendsPage() {
   const [trends, setTrends] = useState<TrendSummary[]>([]);
@@ -28,8 +29,7 @@ export default function TrendsPage() {
   const [analysisLoading, setAnalysisLoading] = useState(false);
 
   useEffect(() => {
-    fetch("http://localhost:8000/trends")
-      .then((res) => res.json())
+    fetchWithCache<TrendSummary[]>(`${API_BASE_URL}/trends`)
       .then((data) => {
         setTrends(Array.isArray(data) ? data : []);
         setLoading(false);
@@ -45,9 +45,7 @@ export default function TrendsPage() {
     setAnalysisLoading(true);
     setAnalysisData(null);
     try {
-      const res = await fetch(`http://localhost:8000/analysis/${slug}`);
-      if (!res.ok) throw new Error("Failed to load analysis");
-      const data = await res.json();
+      const data = await fetchWithCache<AnalysisResponse>(`${API_BASE_URL}/analysis/${slug}`);
       setAnalysisData(data);
     } catch (err) {
       console.error("Analysis Drawer Fetch Error:", err);

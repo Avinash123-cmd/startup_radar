@@ -22,6 +22,7 @@ from api.watchlists import router as watchlists_router
 from api.opportunities_v2 import router as opportunities_v2_router
 from api.startup_generator import router as startup_generator_router
 from api.executive_dashboard import router as executive_dashboard_router
+from api.auth import router as auth_router
 
 from scheduler import start_scheduler
 from pipeline import run_pipeline
@@ -103,6 +104,7 @@ app.include_router(watchlists_router)
 app.include_router(opportunities_v2_router)
 app.include_router(startup_generator_router)
 app.include_router(executive_dashboard_router)
+app.include_router(auth_router)
 
 @app.get("/")
 def home():
