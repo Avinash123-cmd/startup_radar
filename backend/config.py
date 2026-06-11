@@ -1,8 +1,13 @@
 import os
 import json
 from pathlib import Path
+from dotenv import load_dotenv
 
 BASE_DIR = Path(__file__).resolve().parent
+dotenv_path = BASE_DIR / ".env"
+if dotenv_path.exists():
+    load_dotenv(dotenv_path=dotenv_path)
+
 SETTINGS_FILE = BASE_DIR / "database" / "settings.json"
 PERSISTED_KEYS = {"mock_mode", "ollama_endpoint", "collectors_limit"}
 

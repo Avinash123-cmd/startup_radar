@@ -31,7 +31,7 @@ export default function TrendChart({ data }: TrendChartProps) {
         <span>📈 Category Momentum Index</span>
       </h2>
 
-      <div className="w-full h-80">
+      <div className="w-full" style={{ height: "320px", minHeight: "320px" }}>
         <ResponsiveContainer width="100%" height="100%">
           <AreaChart data={chartData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
             <defs>

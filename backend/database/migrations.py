@@ -78,11 +78,13 @@ def run_migrations(engine: Engine) -> None:
 
 
 def _ensure_schema_migrations(conn) -> None:
+    is_pg = conn.dialect.name == "postgresql"
+    datetime_type = "TIMESTAMP" if is_pg else "DATETIME"
     conn.execute(
         text(
-            "CREATE TABLE IF NOT EXISTS schema_migrations ("
-            "version VARCHAR(255) PRIMARY KEY, "
-            "applied_at DATETIME NOT NULL)"
+            f"CREATE TABLE IF NOT EXISTS schema_migrations ("
+            f"version VARCHAR(255) PRIMARY KEY, "
+            f"applied_at {datetime_type} NOT NULL)"
         )
     )
 
@@ -175,55 +177,59 @@ def _ensure_watchlist_tables(conn) -> None:
     inspector = inspect(conn)
     existing_tables = set(inspector.get_table_names())
 
+    is_pg = conn.dialect.name == "postgresql"
+    id_type = "SERIAL PRIMARY KEY" if is_pg else "INTEGER PRIMARY KEY AUTOINCREMENT"
+    datetime_type = "TIMESTAMP" if is_pg else "DATETIME"
+
     if "watchlists" not in existing_tables:
         conn.execute(text(
-            "CREATE TABLE watchlists ("
-            "id INTEGER PRIMARY KEY AUTOINCREMENT, "
-            "name VARCHAR(100) NOT NULL, "
-            "description TEXT, "
-            "is_active INTEGER DEFAULT 1, "
-            "created_at DATETIME NOT NULL)"
+            f"CREATE TABLE watchlists ("
+            f"id {id_type}, "
+            f"name VARCHAR(100) NOT NULL, "
+            f"description TEXT, "
+            f"is_active INTEGER DEFAULT 1, "
+            f"created_at {datetime_type} NOT NULL)"
         ))
 
     if "watchlist_categories" not in existing_tables:
         conn.execute(text(
-            "CREATE TABLE watchlist_categories ("
-            "id INTEGER PRIMARY KEY AUTOINCREMENT, "
-            "watchlist_id INTEGER NOT NULL, "
-            "category_id INTEGER NOT NULL, "
-            "created_at DATETIME NOT NULL, "
-            "FOREIGN KEY (watchlist_id) REFERENCES watchlists(id) ON DELETE CASCADE, "
-            "FOREIGN KEY (category_id) REFERENCES categories(id) ON DELETE CASCADE)"
+            f"CREATE TABLE watchlist_categories ("
+            f"id {id_type}, "
+            f"watchlist_id INTEGER NOT NULL, "
+            f"category_id INTEGER NOT NULL, "
+            f"created_at {datetime_type} NOT NULL, "
+            f"FOREIGN KEY (watchlist_id) REFERENCES watchlists(id) ON DELETE CASCADE, "
+            f"FOREIGN KEY (category_id) REFERENCES categories(id) ON DELETE CASCADE)"
         ))
 
     if "watchlist_repositories" not in existing_tables:
         conn.execute(text(
-            "CREATE TABLE watchlist_repositories ("
-            "id INTEGER PRIMARY KEY AUTOINCREMENT, "
-            "watchlist_id INTEGER NOT NULL, "
-            "repository_id INTEGER NOT NULL, "
-            "created_at DATETIME NOT NULL, "
-            "FOREIGN KEY (watchlist_id) REFERENCES watchlists(id) ON DELETE CASCADE, "
-            "FOREIGN KEY (repository_id) REFERENCES repositories(id) ON DELETE CASCADE)"
+            f"CREATE TABLE watchlist_repositories ("
+            f"id {id_type}, "
+            f"watchlist_id INTEGER NOT NULL, "
+            f"repository_id INTEGER NOT NULL, "
+            f"created_at {datetime_type} NOT NULL, "
+            f"FOREIGN KEY (watchlist_id) REFERENCES watchlists(id) ON DELETE CASCADE, "
+            f"FOREIGN KEY (repository_id) REFERENCES repositories(id) ON DELETE CASCADE)"
         ))
 
     if "alerts" not in existing_tables:
         conn.execute(text(
-            "CREATE TABLE alerts ("
-            "id INTEGER PRIMARY KEY AUTOINCREMENT, "
-            "watchlist_id INTEGER NOT NULL, "
-            "severity VARCHAR(20) NOT NULL, "
-            "alert_type VARCHAR(50) NOT NULL, "
-            "category_id INTEGER, "
-            "repository_id INTEGER, "
-            "title VARCHAR(255) NOT NULL, "
-            "message TEXT NOT NULL, "
-            "previous_value FLOAT, "
-            "current_value FLOAT, "
-            "change_percent FLOAT, "
-            "is_read INTEGER DEFAULT 0, "
-            "created_at DATETIME NOT NULL, "
-            "FOREIGN KEY (watchlist_id) REFERENCES watchlists(id) ON DELETE CASCADE, "
-            "FOREIGN KEY (category_id) REFERENCES categories(id) ON DELETE SET NULL, "
-            "FOREIGN KEY (repository_id) REFERENCES repositories(id) ON DELETE SET NULL)"
+            f"CREATE TABLE alerts ("
+            f"id {id_type}, "
+            f"watchlist_id INTEGER NOT NULL, "
+            f"severity VARCHAR(20) NOT NULL, "
+            f"alert_type VARCHAR(50) NOT NULL, "
+            f"category_id INTEGER, "
+            f"repository_id INTEGER, "
+            f"title VARCHAR(255) NOT NULL, "
+            f"message TEXT NOT NULL, "
+            f"previous_value FLOAT, "
+            f"current_value FLOAT, "
+            f"change_percent FLOAT, "
+            f"is_read INTEGER DEFAULT 0, "
+            f"created_at {datetime_type} NOT NULL, "
+            f"FOREIGN KEY (watchlist_id) REFERENCES watchlists(id) ON DELETE CASCADE, "
+            f"FOREIGN KEY (category_id) REFERENCES categories(id) ON DELETE SET NULL, "
+            f"FOREIGN KEY (repository_id) REFERENCES repositories(id) ON DELETE SET NULL)"
         ))

@@ -1,10 +1,15 @@
 import os
 from pathlib import Path
+from dotenv import load_dotenv
 from sqlalchemy import create_engine, event
 from sqlalchemy.orm import sessionmaker
 
 # Dynamically construct database folder and absolute SQLite path
 BASE_DIR = Path(__file__).resolve().parent.parent # backend directory
+dotenv_path = BASE_DIR / ".env"
+if dotenv_path.exists():
+    load_dotenv(dotenv_path=dotenv_path)
+
 DB_PATH = BASE_DIR / "database" / "radar.db"
 DB_PATH.parent.mkdir(parents=True, exist_ok=True)
 
